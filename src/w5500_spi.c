@@ -5,47 +5,14 @@
 #include "w5500_spi.h"
 
 
-/* ARDUINO */
-// Offsets for I/O pins in the PINB register
-const int CLK = 0, SEL = 1, MO= 2, MI = 3, INTR = 4;
-
-
-/* W5500 */
-// Addresses from the common register block, first byte is irrelevant, only the last three matter
-// (bytes 1 and 2 are the address, last gets used as basis for a control frame)
-const uint32_t MR = 0x00000000, GAR = 0x00000100, SUBR = 0x00000500, SHAR = 0x00000900, 
-    SIPR = 0x00000F00, PHYCFGR = 0x00002E00, VERSIONR = 0x00003900;
-// Number of bytes in register 
-const uint8_t MR_LEN = 1, GAR_LEN = 4, SUBR_LEN = 4, SHAR_LEN = 6, 
-    SIPR_LEN = 4, PHYCFGR_LEN = 1, VERSIONR_LEN = 1;
-
-// Base addresses for sockets' registers (socket-no-based adjustment done later)
-// Socket information
-const uint32_t S_MR = 0x00000008, S_CR = 0x00000108, S_SR = 0x00000308, S_PORT = 0x00000408, 
-    // Counterparty data
-    S_DHAR = 0x00000608, S_DIPR = 0x00000C08, S_DPORT = 0x00001008, 
-    // Free space in the outgoing TX register
-    S_TX_FSR = 0x00002008,
-    // TX and RX registers' read and write pointers
-    S_TX_RD = 0x00002208, S_TX_WR = 0x00002408, S_TX_RSR = 0x00002608, S_RX_RD = 0x00002808, S_RX_WR = 0x00002A08,
-    // TX and RX registers themselves
-    S_TX_BUF = 0x00000010, S_RX_BUF = 0x00000018; 
-const uint8_t S_MR_LEN = 1, S_CR_LEN = 1, S_SR_LEN = 1, S_PORT_LEN = 2, 
-    S_DHAR_LEN = 6, S_DIPR_LEN = 4, S_DPORT_LEN = 2, 
-    S_TX_FSR_LEN = 2,
-    S_TX_RD_LEN = 2, S_TX_WR_LEN = 2, S_TX_RSR_LEN = 2, S_RX_RD_LEN = 2, S_RX_WR_LEN = 2;
-
-// TCP commands for W5500
-const uint8_t TCPMODE[] = {0x01}, OPEN[] = {0x01}, LISTEN[] = {0x02}, 
-    CONNECT[] = {0x04}, DISCON[] = {0x08}, CLOSE[] = {0x10}, SEND[] = {0x20};
-
-
 // Macros for things too small to be a function yet too weird to read
 #define LOW(pin) PORTB &= ~(1 << pin)
 #define HIGH(pin) PORTB |= (1 << pin)
 #define WRITEOUTPUT(out) PORTB = (PORTB & ~(1 << MO)) | (out << MO)
 #define READINPUT ((PINB & (1 << MI)) >> MI)
-
+#define EXTRACTBIT(byte, index) (byte & (1 << index)) >> index
+#define EMBEDADDRESS(base_addr, new_addr) (base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8)
+#define MIN(a, b) ((a < b) ? a : b)
 
 /* LOCAL*/
 // Helper for socket port assignment
@@ -53,6 +20,8 @@ void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno);
 
 void clear_spi_buffer(W5500_SPI *w5500);
 void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen);
+// Reads 2-byte value until it stabilises
+uint16_t get_2_byte(uint32_t addr);
 
 // Get data from W5500
 void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen);
@@ -90,14 +59,15 @@ W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len) {
     }
 
     W5500_SPI w5500 = {
-        .spi_buf = buffer,
-        .buf_len = buffer_len,
+        .spi_buffer = buffer,
+        .buf_length = buffer_len,
         .buf_index = 0,
         .ip_address = {*ip_addr},
         .sockets = {*sockets},
         
         .tcp_listen = &tcp_listen,
         .tcp_get_connection_data = &tcp_get_connection_data,
+        .tcp_read_received = &tcp_read_received,
         .tcp_send = &tcp_send,
         .tcp_close = &tcp_close,
         .tcp_disconnect = &tcp_disconnect
@@ -124,43 +94,46 @@ W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len) {
 /* TCP Connections */
 // 
 void tcp_listen(Socket socket) {
-    // Embed the socket number in the addresses to hit right register block
-    uint8_t snomask = (socket.sockno << 5);
-    uint32_t portaddr = S_PORT | snomask;
-    uint32_t modeaddr = S_MR | snomask;
-    uint32_t comaddr = S_CR | snomask;
+    // Embed the socket number in the addresses to hit the right register block
+    uint8_t socketmask = (socket.sockno << 5);
+    uint32_t port_addr = S_PORT | socketmask;
+    uint32_t mode_addr = S_MR | socketmask;
+    uint32_t com_addr = S_CR | socketmask;
+    uint8_t tcpmode[] = {TCPMODE};
+    uint8_t open[] = {OPEN};
+    uint8_t listen[] = {LISTEN};
 
     printf("Opening port %d for socket %d, mode TCP listen.\n", socket.portno, socket.sockno);
 
     // Assign port to socket
     uint8_t port[] = {(socket.portno >> 8), socket.portno};
-    write(portaddr, S_PORT_LEN, port);
+    write(port_addr, S_PORT_LEN, port);
 
     // Set socket mode to TCP
-    write(modeaddr, S_MR_LEN, TCPMODE);
+    write(mode_addr, S_MR_LEN, tcpmode);
     // Open socket
-    write(comaddr, S_CR_LEN, OPEN);
+    write(com_addr, S_CR_LEN, open);
     // Get the socket listening
-    write(comaddr, S_CR_LEN, LISTEN);
+    write(com_addr, S_CR_LEN, listen);
     
     // Check status
     tcp_get_connection_data(&socket);
 }
 
 void tcp_get_connection_data(Socket *socket) {
-    // Embed the socket number in the address to hit right register block
-    uint8_t snomask = (socket->sockno << 5);
-    uint32_t statusaddr = S_SR | snomask;
+    // Embed the socket number in the address to hit the right register block
+    uint8_t socketmask = (socket->sockno << 5);
+    uint32_t status_addr = S_SR | socketmask;
 
-    read(statusaddr, &socket->status, S_SR_LEN, S_SR_LEN);
+    read(status_addr, &socket->status, S_SR_LEN, S_SR_LEN);
 
     printf("Connection data for socket %d: status %d", socket->sockno, socket->status);
 
     if (socket->status == SOCK_ESTABLISHED) {
-        uint32_t ipaddr = S_DIPR | snomask;
-        uint32_t portaddr = S_DPORT | snomask;
-        read(ipaddr, socket->connected_ip_address, sizeof(socket->connected_ip_address), S_DIPR_LEN);
-        read(portaddr, socket->connected_port, sizeof(socket->connected_port), S_DPORT_LEN);
+        uint32_t ip_addr = S_DIPR | socketmask;
+        uint32_t port_addr = S_DPORT | socketmask;
+        read(ip_addr, socket->connected_ip_address, sizeof(socket->connected_ip_address), S_DIPR_LEN);
+        read(port_addr, socket->connected_port, sizeof(socket->connected_port), S_DPORT_LEN);
         printf(", connected to IP %u.%u.%u.%u and port %d", socket->connected_ip_address[0], socket->connected_ip_address[1], socket->connected_ip_address[2], socket->connected_ip_address[3], (socket->connected_port[0] + socket->connected_port[1]));
     }
 
@@ -169,64 +142,82 @@ void tcp_get_connection_data(Socket *socket) {
 
 void tcp_send(Socket socket, uint16_t messagelen, char message[]) {
     
-    // Embed the socket number in the addresses to hit right register block
-    uint8_t snomask = (socket.sockno << 5);
-    uint32_t txfsraddr = S_TX_FSR | snomask;
-    uint32_t txwraddr = S_TX_WR | snomask;
-    uint32_t txaddr = S_TX_BUF | snomask;
-    uint32_t sendaddr = S_CR | snomask;
+    // Embed the socket number in the addresses to hit the right register block
+    uint8_t socketmask = (socket.sockno << 5);
+    uint32_t tx_free_addr = S_TX_FSR | socketmask;
+    uint32_t tx_pointer_addr = S_TX_WR | socketmask;
+    uint32_t tx_addr = S_TX_BUF | socketmask;
+    uint32_t send_addr = S_CR | socketmask;
 
     // If the whole message can't fit in the register, send it in multiple pieces
     uint16_t message_left = messagelen;    
     do {
         // Get the TX buffer write pointer, adjust address to start writing from that point
-        uint8_t txwr[] = {0, 0}; 
-        read(txwraddr, txwr, S_TX_WR_LEN, S_TX_WR_LEN);
-        txaddr = ((txaddr & 0xFF0000FF) | ((uint32_t)txwr[0] << 16) | ((uint16_t)txwr[1] << 8));
+        uint16_t tx_pointer = get_2_byte(tx_pointer_addr);
+        tx_addr = EMBEDADDRESS(tx_addr, tx_pointer);
 
-        // Check the free space in the TX buffer (which may be unreliable, so check until it stabilises)
-        uint8_t txfsr1[] = {0, 0}, txfsr2[] = {0, 0}; 
-        do {
-            txfsr2[0] = txfsr1[0];
-            txfsr2[1] = txfsr1[1];
-            read(txfsraddr, txfsr1, S_TX_FSR_LEN, S_TX_FSR_LEN);
-        } while (txfsr1[0] != txfsr2[0] || txfsr1[1] != txfsr2[1]);
-        uint16_t send_amount = ((uint16_t)txfsr2[0] << 8 | txfsr2[1]);
+        uint16_t send_amount = get_2_byte(tx_free_addr);
         
         // Compare free space to the remaining message, send as much as you can
-        send_amount = (send_amount < message_left) ? send_amount : message_left ;
-        write(txaddr, send_amount, &message[messagelen - message_left]);
+        send_amount = MIN(send_amount, message_left);
+        write(tx_addr, send_amount, &message[messagelen - message_left]);
         message_left -= send_amount;
 
         // Write a new value to the TX buffer write pointer to match post-input situation
-        uint16_t ntxwr = (send_amount + ((uint16_t)txwr[0] << 8) + txwr[1]);
-        uint8_t new_txwr[] = {ntxwr >> 8, ntxwr};
-        write(txwraddr, S_TX_WR_LEN, new_txwr);
+        uint8_t new_tx_pointer[] = {(send_amount + tx_pointer) >> 8, (send_amount + tx_pointer)};
+        write(tx_pointer_addr, S_TX_WR_LEN, new_tx_pointer);
         
         // Send the "send" command to pass the message to the other party
-        write(sendaddr, S_CR_LEN, SEND);
+        uint8_t send[] = {SEND};
+        write(send_addr, S_CR_LEN, send);
         
     } while (message_left > 0);
 }
 
+void tcp_read_received(W5500_SPI w5500, Socket socket) {
+    // Embed the socket number in the address to hit the right register block
+    uint8_t socketmask = (socket.sockno << 5);
+    uint32_t rx_length_addr = S_RX_RSR | socketmask;
+    uint32_t rx_pointer_addr = S_RX_RD | socketmask;
+    uint32_t rx_addr = S_RX_BUF | socketmask;
+    uint32_t recv_addr = S_CR | socketmask;
+
+    // Check how much has come in and where you left off reading
+    uint16_t received_amount = get_2_byte(rx_length_addr);
+    uint16_t rx_pointer = get_2_byte(rx_pointer_addr);
+    rx_addr = EMBEDADDRESS(rx_addr, rx_pointer);
+
+    uint16_t read_amount = MIN(w5500.buf_length, received_amount);
+
+    read(rx_addr, w5500.spi_buffer, w5500.buf_length, read_amount);
+
+    // Update read pointer
+    uint8_t new_rx_pointer[] = {(read_amount + rx_pointer) >> 8, (read_amount + rx_pointer)};
+    write(rx_pointer_addr, S_RX_RD_LEN, new_rx_pointer);
+    uint8_t recv[] = {RECV};
+    write(recv_addr, S_CR_LEN, recv);
+}
+
 void tcp_disconnect(Socket socket) {
-    // Embed the socket number in the address to hit right register block
-    uint8_t snomask = (socket.sockno << 5);
-    uint32_t comaddr = S_CR | snomask;
+    // Embed the socket number in the address to hit the right register block
+    uint8_t socketmask = (socket.sockno << 5);
+    uint32_t com_addr = S_CR | socketmask;
 
     printf("Closing TCP connection in socket %d.\n", socket.sockno);
 
-    write(comaddr, S_CR_LEN, DISCON);    
+    uint8_t discon[] = {DISCON};
+    write(com_addr, S_CR_LEN, discon);    
 }
 
 void tcp_close(Socket socket) {
     // Embed the socket number in the address to hit right register block
-    uint8_t snomask = (socket.sockno << 5);
-    uint32_t comaddr = S_CR | snomask;
+    uint8_t socketmask = (socket.sockno << 5);
+    uint32_t com_addr = S_CR | socketmask;
 
     printf("Closing socket %d.\n", socket.sockno);
 
-    write(comaddr, S_CR_LEN, CLOSE);
+    uint8_t close[] = {CLOSE};
+    write(com_addr, S_CR_LEN, close);
 }
 
 
@@ -243,7 +234,7 @@ void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno) {
 void clear_spi_buffer(W5500_SPI *w5500) { 
     printf("Clearing buffer.\n");
     for (uint16_t i = 0; i < w5500->buf_index; i++) {
-        w5500->spi_buf[i] = 0;
+        w5500->spi_buffer[i] = 0;
     }
     w5500->buf_index = 0;
 }
@@ -255,6 +246,17 @@ void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
         printf("-%X", buffer[i]);
     }
     printf("\n");
+}
+
+// As 2-byte register values may change during reading, check them until subsequent reads match
+uint16_t get_2_byte(uint32_t addr) {
+    uint8_t read1[] = {0, 0}, read2[] = {0, 0}; 
+    do {
+        read2[0] = read1[0];
+        read2[1] = read1[1];
+        read(addr, read1, 2, 2);
+    } while (read1[0] != read2[0] || read1[1] != read2[1]);
+    return ((uint16_t)read2[0] << 8 | read2[1]);
 }
 
 
@@ -328,7 +330,7 @@ void end_transmission() {
 void writeByte(uint8_t data) {
     for (int i = 7; i >= 0; i--) {
         LOW(CLK);
-        WRITEOUTPUT((data & (1 << i)) >> i);
+        WRITEOUTPUT(EXTRACTBIT(data, i));
         HIGH(CLK);
     }
 }

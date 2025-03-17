@@ -28,6 +28,7 @@ int main(void) {
         }
         // External client connected
         if (SPI.sockets[0].status == SOCK_ESTABLISHED) {
+            SPI.tcp_read_received(SPI, SPI.sockets[0]);
             char msg[] = {"HTTP/1.1 OK\nContent-Type: text/html\n\n<!DOCTYPE html><html><body><h1>Congratulations, you've hacked into the Laatukoodit Oy mainframe.</h1></body></html>"};
             SPI.tcp_send(SPI.sockets[0], sizeof(msg), msg);
             SPI.tcp_disconnect(SPI.sockets[0]);
