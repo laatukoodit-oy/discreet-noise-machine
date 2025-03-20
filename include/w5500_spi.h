@@ -7,14 +7,41 @@
 
 #include <stdio.h>
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 /* AVR */
-// Offsets for I/O pins in the PINB register (for ATMega328)
-#define CLK 0
-#define SEL 1
-#define MO 2
-#define MI 3
-#define INTR 4
+// Shared values
+#define CLK PB0
+#define SEL PB1
+// Device-specific
+#if defined(__AVR_ATtiny85__)
+    // External interrupt    
+    #define INT0_TRIGGER_MODE MCUCR
+    #define INT_ENABLE_MASK GIMSK
+    // Pin setup addresses and offsets
+    #define INTREG PORTB
+    #define INTR PB2
+    #define MO PB3
+    #define MI PB4
+#elif defined(__AVR_ATmega328P__)
+    #define INT0_TRIGGER_MODE EICRA
+    #define INT_ENABLE_MASK EIMSK
+    // Pin setup addresses and offsets
+    #define INTREG PORTD
+    #define INTR PD2
+    #define MO PB2
+    #define MI PB3
+// Default to ATmega328P, I suppose
+#else 
+    #define INT0_TRIGGER_MODE EICRA
+    #define INT_ENABLE_MASK EIMSK
+    // Pin setup addresses and offsets
+    #define INTREG PORTD
+    #define INTR PD2
+    #define MO PB2
+    #define MI PB3
+#endif
+
 
 /* W5500 */
 // Addresses from the common register block, first byte is irrelevant, only the last three matter
@@ -24,6 +51,10 @@
 #define SUBR 0x00000500 
 #define SHAR 0x00000900 
 #define SIPR 0x00000F00
+#define IR 0x00001500
+#define IMR 0x00001600
+#define SIR 0x00001700
+#define SIMR 0x00001800
 #define PHYCFGR 0x00002E00
 #define VERSIONR 0x00003900
 // Number of bytes in registers above 
@@ -32,6 +63,10 @@
 #define SUBR_LEN 4
 #define SHAR_LEN 6
 #define SIPR_LEN 4
+#define IR_LEN 1
+#define IMR_LEN 1
+#define SIR_LEN 1
+#define SIMR_LEN 1
 #define PHYCFGR_LEN 1
 #define VERSIONR_LEN 1
 
@@ -39,6 +74,7 @@
 // Socket information
 #define S_MR 0x00000008
 #define S_CR 0x00000108
+#define S_IR 0x00000208
 #define S_SR 0x00000308
 #define S_PORT 0x00000408 
 // Counterparty data
@@ -53,12 +89,15 @@
 #define S_RX_RSR 0x00002608
 #define S_RX_RD 0x00002808
 #define S_RX_WR 0x00002A08
+// Interrupt mask
+#define S_IMR 0x00002C08
 // TX and RX registers themselves
 #define S_TX_BUF 0x00000010
 #define S_RX_BUF 0x00000018
 // Number of bytes in the registers above 
 #define S_MR_LEN 1
 #define S_CR_LEN 1
+#define S_IR_LEN 1
 #define S_SR_LEN 1
 #define S_PORT_LEN 2
 #define S_DHAR_LEN 6
@@ -70,6 +109,7 @@
 #define S_TX_RSR_LEN 2
 #define S_RX_RD_LEN 2
 #define S_RX_WR_LEN 2
+#define S_IMR_LEN 1
 
 // TCP commands for W5500
 #define TCPMODE 0x01
@@ -81,12 +121,23 @@
 #define SEND 0x20
 #define RECV 0x40 
 
+// Interrupt register offset values
+#define CON_INT 0
+#define DISCON_INT 1
+#define RECV_INT 2
+#define TIMEOUT_INT 3
+#define SENDOK_INT 4 
+
+#define INTERRUPTMASK 0b00010111
+
 // TCP status codes
 #define SOCK_CLOSED 0x00
 #define SOCK_INIT 0x13
 #define SOCK_LISTEN 0x14
 #define SOCK_ESTABLISHED 0x17
 #define SOCK_CLOSE_WAIT 0x1C 
+
+
 
 typedef struct { 
     uint8_t sockno, status, connected_ip_address[4], connected_port[2];
@@ -111,7 +162,7 @@ typedef struct W5500_SPI_thing {
 } W5500_SPI;
 
 // Setup of various addresses
-W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len);
+W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, int interrupt));
 
 // Opens a port up for TCP Listen
 void tcp_listen(Socket socket);
