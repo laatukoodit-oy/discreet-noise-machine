@@ -73,9 +73,10 @@ void uart_putchar(char byte) {
 
 
 void uart_write(const char *data) {
+    char byte;
     // Write characters until terminating null byte
-    while (*data++)
-        uart_putchar(*data);
+    while ((byte = *data++))
+        uart_putchar(byte);
 }
 
 
