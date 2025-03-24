@@ -10,11 +10,11 @@
 #define WRITEOUTPUT(out) PORTB = (PORTB & ~(1 << MO)) | (out << MO)
 #define READINPUT ((PINB & (1 << MI)) >> MI)
 
-#define EXTRACTBIT(byte, index) (byte & (1 << index)) >> index
+#define EXTRACTBIT(byte, index) ((byte & (1 << index)) >> index)
 
 #define SOCKETMASK(sockno) (sockno << 5)
-#define EMBEDSOCKET(base_addr, sockno) (base_addr & 0xFFFFFF1F) | (sockno << 5)
-#define EMBEDADDRESS(base_addr, new_addr) (base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8)
+#define EMBEDSOCKET(base_addr, sockno) ((base_addr & 0xFFFFFF1F) | (sockno << 5))
+#define EMBEDADDRESS(base_addr, new_addr) ((base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8))
 
 #define ENABLEINT0 (INT_ENABLE |= (1 << INT0))
 #define DISABLEINT0 (INT_ENABLE &= (INT_ENABLE & ~(1 << INT0)))
@@ -304,7 +304,7 @@ void clear_spi_buffer(W5500_SPI *w5500) {
     w5500->buf_index = 0;
 }
 
-#ifndef __AVR_Atiny85__
+#ifndef __AVR_ATtiny85__
 void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
     printf("Buffer contents: 0x%X", buffer[0]);
     uint16_t len = (printlen <= bufferlen ? printlen : bufferlen);
@@ -312,6 +312,12 @@ void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
         printf("-%X", buffer[i]);
     }
     printf("\r\n");
+}
+#endif
+#ifdef __AVR_ATtiny85__
+/* Something to insert the buffer's contents into the HTML page to be sent */
+void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
+
 }
 #endif
 
@@ -446,7 +452,6 @@ ISR(INT0_vect) {
                     } 
                 }
             }
-            read(socket_interrupt_addr, &sock, 1, S_IR_LEN);
         }
     }
 }

@@ -46,17 +46,17 @@
 /* W5500 */
 // Addresses from the common register block, first byte is irrelevant, only the last three matter
 // (bytes 1 and 2 are the address, last gets used as basis for a control frame)
-#define MR 0x00000000 
-#define GAR 0x00000100
-#define SUBR 0x00000500 
-#define SHAR 0x00000900 
-#define SIPR 0x00000F00
-#define IR 0x00001500
-#define IMR 0x00001600
-#define SIR 0x00001700
-#define SIMR 0x00001800
-#define PHYCFGR 0x00002E00
-#define VERSIONR 0x00003900
+#define MR 0x00000000ul
+#define GAR 0x00000100ul
+#define SUBR 0x00000500ul 
+#define SHAR 0x00000900ul 
+#define SIPR 0x00000F00ul
+#define IR 0x00001500ul
+#define IMR 0x00001600ul
+#define SIR 0x00001700ul
+#define SIMR 0x00001800ul
+#define PHYCFGR 0x00002E00ul
+#define VERSIONR 0x00003900ul
 // Number of bytes in registers above 
 #define MR_LEN 1
 #define GAR_LEN 4
@@ -72,28 +72,28 @@
 
 // Base addresses for sockets' registers (socket-no-based adjustment done later)
 // Socket information
-#define S_MR 0x00000008
-#define S_CR 0x00000108
-#define S_IR 0x00000208
-#define S_SR 0x00000308
-#define S_PORT 0x00000408 
+#define S_MR 0x00000008ul
+#define S_CR 0x00000108ul
+#define S_IR 0x00000208ul
+#define S_SR 0x00000308ul
+#define S_PORT 0x00000408ul 
 // Counterparty data
-#define S_DHAR 0x00000608
-#define S_DIPR 0x00000C08
-#define S_DPORT 0x00001008 
+#define S_DHAR 0x00000608ul
+#define S_DIPR 0x00000C08ul
+#define S_DPORT 0x00001008ul 
 // Free space in the outgoing TX register
-#define S_TX_FSR 0x00002008
+#define S_TX_FSR 0x00002008ul
 // TX and RX registers' read and write pointers
-#define S_TX_RD 0x00002208
-#define S_TX_WR 0x00002408
-#define S_RX_RSR 0x00002608
-#define S_RX_RD 0x00002808
-#define S_RX_WR 0x00002A08
+#define S_TX_RD 0x00002208ul
+#define S_TX_WR 0x00002408ul
+#define S_RX_RSR 0x00002608ul
+#define S_RX_RD 0x00002808ul
+#define S_RX_WR 0x00002A08ul
 // Interrupt mask
-#define S_IMR 0x00002C08
+#define S_IMR 0x00002C08ul
 // TX and RX registers themselves
-#define S_TX_BUF 0x00000010
-#define S_RX_BUF 0x00000018
+#define S_TX_BUF 0x00000010ul
+#define S_RX_BUF 0x00000018ul
 // Number of bytes in the registers above 
 #define S_MR_LEN 1
 #define S_CR_LEN 1

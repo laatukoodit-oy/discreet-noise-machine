@@ -12,7 +12,7 @@ void interrupt(int socketno, int interrupt);
 
 int main(void) {
     uart_init();
-    stdout = &uart_output; // Redirect stdout to UART
+    //stdout = &uart_output; // Redirect stdout to UART
 
     // IP address & other setup
     setup_w5500_spi(&W5500, spi_buffer, SPIBUFSIZE, &interrupt);
