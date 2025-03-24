@@ -1,3 +1,4 @@
+#include <avr/pgmspace.h>
 #include "uart.h"
 #include <util/delay.h>
 #include "w5500_spi.h"
