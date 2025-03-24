@@ -181,7 +181,7 @@ void clear_spi_buffer(W5500_SPI *w5500);
 void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen);
 
 // Opens a port up for TCP Listen
-void tcp_listen(Socket *socket);
+uint8_t tcp_listen(Socket *socket);
 void tcp_get_connection_data(Socket *socket);
 void tcp_send(Socket *socket, uint16_t messagelen, char message[]);
 void tcp_read_received(W5500_SPI *w5500, Socket *socket);

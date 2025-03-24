@@ -16,6 +16,9 @@
 #define EMBEDSOCKET(base_addr, sockno) (base_addr & 0xFFFFFF1F) | (sockno << 5)
 #define EMBEDADDRESS(base_addr, new_addr) (base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8)
 
+#define ENABLEINT0 (INT_ENABLE |= (1 << INT0))
+#define DISABLEINT0 (INT_ENABLE &= (INT_ENABLE & ~(1 << INT0)))
+
 #define MIN(a, b) ((a < b) ? a : b)
 
 /* LOCAL*/
@@ -110,35 +113,44 @@ void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint16_t buffer_len, voi
 
 /* TCP Connections */
 // 
-void tcp_listen(Socket *socket) {
+uint8_t tcp_listen(Socket *socket) {
     // Embed the socket number in the addresses to hit the right register block
     uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t port_addr = S_PORT | socketmask;
     uint32_t mode_addr = S_MR | socketmask;
     uint32_t com_addr = S_CR | socketmask;
     uint32_t status_addr = S_SR | socketmask;
+    // TCP commands
     uint8_t tcpmode = TCPMODE;
     uint8_t open = OPEN;
     uint8_t listen = LISTEN;
 
     // Assign port to socket
     uint8_t port[] = {(socket->portno >> 8), socket->portno};
-    write(port_addr, S_PORT_LEN, port);
-
-    // Enable interrupts for the socket
-    enable_interrupts(socket->sockno);
+    write(port_addr, sizeof(port), port);
 
     // Set socket mode to TCP
     write(mode_addr, 1, &tcpmode);
     // Open socket
     write(com_addr, 1, &open);
-    // Check that the socket is ready to take a listen command
+    // Ensure that the socket is ready to take a listen command
     uint8_t status[] = {0};
+    uint8_t killswitch = 0;
     do {
         read(status_addr, status, 1, S_SR_LEN);
+        killswitch++;
+        if (killswitch > 100) {
+            return 1;
+        }
     } while (status[0] != SOCK_INIT);
+
     // Get the socket listening
     write(com_addr, 1, &listen);
+
+    // Enable interrupts for the socket
+    enable_interrupts(socket->sockno);
+
+    return 0;
 }
 
 void tcp_get_connection_data(Socket *socket) {
@@ -223,7 +235,9 @@ void tcp_disconnect(Socket *socket) {
     uint32_t com_addr = S_CR | socketmask;
 
     uint8_t discon = DISCON;
-    write(com_addr, 1, &discon);    
+    write(com_addr, 1, &discon);
+
+    disable_interrupts(socket->sockno);
 }
 
 void tcp_close(Socket *socket) {
@@ -316,6 +330,10 @@ uint16_t get_2_byte(uint32_t addr) {
 /* Transmissions */
 // Conducts a read operation fetching information from register(s), number of fetched bytes given by readlen
 void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) {
+    // Don't let a reading operation get interrupted by INT0, as that contains other
+    // reads and writes that would mess with the chip select and message contents
+    DISABLEINT0;
+    
     // Send header
     start_transmission(addr);
 
@@ -336,10 +354,16 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) 
         buffer[(uint8_t)i] = byte;
     }
     end_transmission();
+
+    ENABLEINT0;
 }
 
 // Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
 void write(uint32_t addr, uint16_t datalen, uint8_t data[]) {
+    // Don't let a writing operation get interrupted by INT0, as that contains other
+    // reads and writes that would mess with the chip select and message contents
+    DISABLEINT0;
+    
     // Set write bit in header frame
     uint32_t address = addr | (1 << 2);
     // Send header
@@ -351,6 +375,8 @@ void write(uint32_t addr, uint16_t datalen, uint8_t data[]) {
     }
 
     end_transmission();
+
+    ENABLEINT0;
 }
 
 void start_transmission(uint32_t addr) {
@@ -387,11 +413,9 @@ void setup_atthing_interrupts(void) {
     // Set INT0 to trogger on low
     INT_MODE = (INT_MODE & ~((1 << ISC00) | (1 << ISC01)));
     // Enable INT0
-    INT_ENABLE |= (1 << INT0);
+    ENABLEINT0;
     // Enable interrupts in general in the status register
     SREG |= (1 << SREG_I);
-        
-    sei();
 }
 
 ISR(INT0_vect) {
