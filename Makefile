@@ -1,19 +1,19 @@
 include ./make.conf
 
-SRC_DIR = src
-INCLUDE_DIR = include
-BUILD_DIR = build
+SRC_DIR := src
+INCLUDE_DIR := include
+BUILD_DIR := build
 
-CC = avr-gcc
-OBJCOPY = avr-objcopy
-LDFLAGS = -mmcu=$(MCU)
+CC := avr-gcc
+OBJCOPY := avr-objcopy
 CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wextra -I$(INCLUDE_DIR) -std=c23 -fstack-usage
+LDFLAGS := -mmcu=$(MCU)
 
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
+SRCS := $(wildcard $(SRC_DIR)/*.c)
+OBJS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 
-ELF = $(BUILD_DIR)/program.elf
-HEX = $(BUILD_DIR)/program.hex
+ELF := $(BUILD_DIR)/program.elf
+HEX := $(BUILD_DIR)/program.hex
 
 all: $(HEX)
 
