@@ -27,9 +27,6 @@ void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno);
 void enable_interrupts(uint8_t socketno);
 void disable_interrupts(uint8_t socketno);
 
-void clear_spi_buffer(W5500_SPI *w5500);
-void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen);
-
 // Reads 2-byte value until it stabilises
 uint16_t get_2_byte(uint32_t addr);
 
@@ -38,25 +35,51 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen);
 // Write data to the W5500
 void write(uint32_t addr, uint16_t datalen, uint8_t data[]);
 
-// Sends header to start of transmission
+// Sends header to start off transmission
 void start_transmission(uint32_t addr);
 // Chip select low
 void end_transmission(void);
 
-// 8 cycles of shifting a byte and setting a output port based on said bit
+// 8 cycles of shifting a byte and setting an output port based on said bit
 void writeByte(uint8_t data);
 
-void setup_atmega_interrupts(void);
+// Setting of various registers needed for INT0 interrupts
+void setup_atthing_interrupts(void);
 
 
 /* PUBLIC*/
-// Setup of various addresses
-W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, int interrupt)) {  
-    printf("W5500 setup started.\n");
+// Device initialization
+void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, int interrupt)) {  
+    // Clears the socket interrupt mask on the W5500
+    uint8_t clear_interrupts = 0;
+    write(SIMR, 1, &clear_interrupts);
 
-    uint32_t gen_interrupt_mask_addr = SIMR;
-    uint8_t clear_interrupts[] = {0};
-    write(gen_interrupt_mask_addr, 1, clear_interrupts);
+    w5500->spi_buffer = buffer;
+    w5500->buf_length = buffer_len;
+    w5500->buf_index = 0;
+    // IP address to 192.168.0.15 (for group 15)
+    w5500->ip_address[0] = 0xC0; 
+    w5500->ip_address[1] = 0xA8; 
+    w5500->ip_address[2] = 0x00; 
+    w5500->ip_address[3] = 0x0F;
+
+    for (uint16_t i = 0; i < SOCKETNO; i++) {
+        Socket newsock;
+        initialise_socket(&newsock, i, 9999 + i);
+        w5500->sockets[i] = newsock;
+
+        disable_interrupts(i);
+    }
+
+    // Set pins to I or O as needed
+    DDRB |= (1 << CLK) | (1 << SEL) | (1 << MO);
+    DDRB &= ~(1 << MI);
+    INTREG &= ~(1 << INTR);
+
+    // Pins to 0, except for the select pin, which defaults to 1
+    LOW(CLK);
+    LOW(MO);
+    HIGH(SEL);
 
     // Gateway address to 192.168.0.1
     uint8_t gw_addr[] = {0xC0, 0xA8, 0x00, 0x01};
@@ -64,89 +87,58 @@ W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len, void (*interrupt
     uint8_t sm_addr[] = {0xFF, 0xFF, 0xFF, 0x00};
     // Mac address to 4A-36-EE-E0-34-AB
     uint8_t mac_addr[] = {0x4A, 0x36, 0xEE, 0xE0, 0x34, 0xAB};
-    // IP address to 192.168.0.15 (for group 15)
-    uint8_t ip_addr[] = {0xC0, 0xA8, 0x00, 0x0F};
 
-    Socket sockets[8];
-    for (uint16_t i = 0; i < 8; i++) {
-        Socket newsock;
-        initialise_socket(&newsock, i, 9999 + i);
-        sockets[i] = newsock;
+    // Set up the link as a 10M duplex connection
+    // Feed in the new config and "use these bits for configuration" setting
+    uint8_t config_option = (1 << OPMD) | (PHY_FD10BTNN << OPMDC);
+    write(PHYCFGR, 1, &config_option);
+    // Apply config
+    uint8_t reset = (1 << RST);
+    write(PHYCFGR, 1, &reset);
 
-        disable_interrupts(i);
-    }
-
-    W5500_SPI w5500 = {
-        .spi_buffer = buffer,
-        .buf_length = buffer_len,
-        .buf_index = 0,
-        .ip_address = {*ip_addr},
-        .sockets = {*sockets},
-        
-        .tcp_listen = &tcp_listen,
-        .tcp_get_connection_data = &tcp_get_connection_data,
-        .tcp_read_received = &tcp_read_received,
-        .tcp_send = &tcp_send,
-        .tcp_close = &tcp_close,
-        .tcp_disconnect = &tcp_disconnect,
-    };
-
-    // Set pins to I or O as needed
-    DDRB &= ~(1 << MI);
-    DDRB |= (1 << CLK) | (1 << SEL) | (1 << MO);
-
-    // Set INT0's pin as input for interrupts coming from the W5500
-    INTREG &= ~(1 << INTR);
-
-    // Pins to 0, except for the select pin, which defaults to 1
-    LOW(CLK);
-    LOW(MO);
-    HIGH(SEL);
- 
     // Set the various device addresses from above
     write(GAR, sizeof(gw_addr), gw_addr);
     write(SUBR, sizeof(sm_addr), sm_addr);
     write(SHAR, sizeof(mac_addr), mac_addr);
-    write(SIPR, sizeof(ip_addr), ip_addr);
+    write(SIPR, 4, w5500->ip_address);
 
     // Enable sending of interrupt signals on the W5500 and reading them here
     w5500_interrupt = interrupt_func;
-    setup_atmega_interrupts();
-
-    return w5500;
+    setup_atthing_interrupts();
 }
 
 
 /* TCP Connections */
 // 
-void tcp_listen(Socket socket) {
+void tcp_listen(Socket *socket) {
     // Embed the socket number in the addresses to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket.sockno);
+    uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t port_addr = S_PORT | socketmask;
     uint32_t mode_addr = S_MR | socketmask;
     uint32_t com_addr = S_CR | socketmask;
+    uint32_t status_addr = S_SR | socketmask;
     uint8_t tcpmode = TCPMODE;
     uint8_t open = OPEN;
     uint8_t listen = LISTEN;
 
-    printf("Opening port %d for socket %d, mode TCP listen.\n", socket.portno, socket.sockno);
-
     // Assign port to socket
-    uint8_t port[] = {(socket.portno >> 8), socket.portno};
+    uint8_t port[] = {(socket->portno >> 8), socket->portno};
     write(port_addr, S_PORT_LEN, port);
 
     // Enable interrupts for the socket
-    enable_interrupts(socket.sockno);
+    enable_interrupts(socket->sockno);
 
     // Set socket mode to TCP
-    write(mode_addr, S_MR_LEN, &tcpmode);
+    write(mode_addr, 1, &tcpmode);
     // Open socket
-    write(com_addr, S_CR_LEN, &open);
+    write(com_addr, 1, &open);
+    // Check that the socket is ready to take a listen command
+    uint8_t status[] = {0};
+    do {
+        read(status_addr, status, 1, S_SR_LEN);
+    } while (status[0] != SOCK_INIT);
     // Get the socket listening
-    write(com_addr, S_CR_LEN, &listen);
-    
-    // Check status
-    tcp_get_connection_data(&socket);
+    write(com_addr, 1, &listen);
 }
 
 void tcp_get_connection_data(Socket *socket) {
@@ -156,23 +148,18 @@ void tcp_get_connection_data(Socket *socket) {
 
     read(status_addr, &socket->status, 1, S_SR_LEN);
 
-    printf("Connection data for socket %d: status %d", socket->sockno, socket->status);
-
     if (socket->status == SOCK_ESTABLISHED) {
         uint32_t ip_addr = S_DIPR | socketmask;
         uint32_t port_addr = S_DPORT | socketmask;
         read(ip_addr, socket->connected_ip_address, 4, S_DIPR_LEN);
         read(port_addr, socket->connected_port, 2, S_DPORT_LEN);
-        printf(", connected to IP %u.%u.%u.%u and port %d", socket->connected_ip_address[0], socket->connected_ip_address[1], socket->connected_ip_address[2], socket->connected_ip_address[3], (socket->connected_port[0] + socket->connected_port[1]));
     }
-
-    printf(".\n");
 }
 
-void tcp_send(Socket socket, uint16_t messagelen, char message[]) {
+void tcp_send(Socket *socket, uint16_t messagelen, char message[]) {
     
     // Embed the socket number in the addresses to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket.sockno);
+    uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t tx_free_addr = S_TX_FSR | socketmask;
     uint32_t tx_pointer_addr = S_TX_WR | socketmask;
     uint32_t tx_addr = S_TX_BUF | socketmask;
@@ -203,9 +190,9 @@ void tcp_send(Socket socket, uint16_t messagelen, char message[]) {
     } while (message_left > 0);
 }
 
-void tcp_read_received(W5500_SPI w5500, Socket socket) {
+void tcp_read_received(W5500_SPI *w5500, Socket *socket) {
     // Embed the socket number in the address to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket.sockno);
+    uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t rx_length_addr = S_RX_RSR | socketmask;
     uint32_t rx_pointer_addr = S_RX_RD | socketmask;
     uint32_t rx_addr = S_RX_BUF | socketmask;
@@ -216,39 +203,38 @@ void tcp_read_received(W5500_SPI w5500, Socket socket) {
     uint16_t rx_pointer = get_2_byte(rx_pointer_addr);
     rx_addr = EMBEDADDRESS(rx_addr, rx_pointer);
 
-    uint16_t read_amount = MIN(w5500.buf_length, received_amount);
+    uint16_t read_amount = MIN(w5500->buf_length, received_amount);
 
-    read(rx_addr, w5500.spi_buffer, w5500.buf_length, read_amount);
+    read(rx_addr, w5500->spi_buffer, w5500->buf_length, read_amount);
+
+    // Update W55000's buffer read index
+    w5500->buf_index = read_amount;
 
     // Update read pointer
     uint8_t new_rx_pointer[] = {(read_amount + rx_pointer) >> 8, (read_amount + rx_pointer)};
-    write(rx_pointer_addr, S_RX_RD_LEN, new_rx_pointer);
+    write(rx_pointer_addr, sizeof(new_rx_pointer), new_rx_pointer);
     uint8_t recv = RECV;
     write(recv_addr, 1, &recv);
 }
 
-void tcp_disconnect(Socket socket) {
+void tcp_disconnect(Socket *socket) {
     // Embed the socket number in the address to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket.sockno);
+    uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t com_addr = S_CR | socketmask;
-
-    printf("Closing TCP connection in socket %d.\n", socket.sockno);
 
     uint8_t discon = DISCON;
     write(com_addr, 1, &discon);    
 }
 
-void tcp_close(Socket socket) {
+void tcp_close(Socket *socket) {
     // Embed the socket number in the address to hit right register block
-    uint8_t socketmask = SOCKETMASK(socket.sockno);
+    uint8_t socketmask = SOCKETMASK(socket->sockno);
     uint32_t com_addr = S_CR | socketmask;
-
-    printf("Closing socket %d.\n", socket.sockno);
 
     uint8_t close = CLOSE;
     write(com_addr, 1, &close);
 
-    disable_interrupts(socket.sockno);
+    disable_interrupts(socket->sockno);
 }
 
 
@@ -261,18 +247,16 @@ void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno) {
 }
 
 void enable_interrupts(uint8_t socketno) {
-    printf("Enabling interrupts\n");
-    
     uint32_t gen_interrupt_mask_addr = SIMR;
     uint32_t sock_interrupt_mask_addr = S_IMR | SOCKETMASK(socketno);
 
     // Enable interrupts for the pin
     // Get existing register contents
-    uint8_t simr = 0;
-    read(gen_interrupt_mask_addr, &simr, 1, SIMR_LEN);
+    uint8_t simr[] = {0};
+    read(gen_interrupt_mask_addr, simr, 1, SIMR_LEN);
     // Embed socket number into it
-    simr |= (1 << socketno);
-    write(gen_interrupt_mask_addr, SIMR_LEN, &simr);
+    simr[0] |= (1 << socketno);
+    write(gen_interrupt_mask_addr, SIMR_LEN, simr);
 
     // Enable most interrupts for the socket 
     uint8_t interrupts = INTERRUPTMASK;
@@ -286,11 +270,11 @@ void disable_interrupts(uint8_t socketno) {
 
     // Disable interrupts for the pin
     // Get existing register contents
-    uint8_t simr = 0;
-    read(gen_interrupt_mask_addr, &simr, 1, SIMR_LEN);
+    uint8_t simr[] = {0};
+    read(gen_interrupt_mask_addr, simr, 1, SIMR_LEN);
     // Remove socket number from it
-    simr &= ~(1 << socketno);
-    write(gen_interrupt_mask_addr, SIMR_LEN, &simr);
+    simr[0] &= ~(1 << socketno);
+    write(gen_interrupt_mask_addr, SIMR_LEN, simr);
 
     // Disable all interrupts for the socket 
     uint8_t interrupts = 0;
@@ -300,21 +284,22 @@ void disable_interrupts(uint8_t socketno) {
 
 /* Buffer manipulation */
 void clear_spi_buffer(W5500_SPI *w5500) { 
-    printf("Clearing buffer.\n");
     for (uint16_t i = 0; i < w5500->buf_index; i++) {
         w5500->spi_buffer[i] = 0;
     }
     w5500->buf_index = 0;
 }
 
+#ifndef __AVR_Atiny85__
 void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
     printf("Buffer contents: 0x%X", buffer[0]);
     uint16_t len = (printlen <= bufferlen ? printlen : bufferlen);
-    for (uint16_t i = 1; i < len; i++) {
+    for (uint16_t i = 1; i < len; i++) {  
         printf("-%X", buffer[i]);
     }
-    printf("\n");
+    printf("\r\n");
 }
+#endif
 
 // As 2-byte register values may change during reading, check them until subsequent reads match
 uint16_t get_2_byte(uint32_t addr) {
@@ -331,8 +316,6 @@ uint16_t get_2_byte(uint32_t addr) {
 /* Transmissions */
 // Conducts a read operation fetching information from register(s), number of fetched bytes given by readlen
 void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) {
-    printf("Reading from address %lX.\n", addr);
-    
     // Send header
     start_transmission(addr);
 
@@ -353,9 +336,6 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) 
         buffer[(uint8_t)i] = byte;
     }
     end_transmission();
-
-    // Push buffer contents out for visibility
-    print_buffer(buffer, bufferlen, readlen);
 }
 
 // Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
@@ -364,15 +344,11 @@ void write(uint32_t addr, uint16_t datalen, uint8_t data[]) {
     uint32_t address = addr | (1 << 2);
     // Send header
     start_transmission(address);
-    
-    printf("Sending data to address %lX: ", address);
+
     // Uses writeByte to push message through the pipeline byte by byte
     for (uint16_t i = 0; i < datalen; i++) {
-        printf("%X-", data[i]);
-
         writeByte(data[i]);
     }
-    printf("Data sent.\n");
 
     end_transmission();
 }
@@ -405,54 +381,48 @@ void writeByte(uint8_t data) {
     }
 }
 
-void setup_atmega_interrupts() {
+void setup_atthing_interrupts(void) {
     cli();
 
-    #if defined(__AVR_ATtiny85__)
-    printf("ATtiny interrupt config.\n");  
-    #elif defined(__AVR_ATmega328P__)
-    printf("ATmega interrupt config.\n");
-    #else 
-    printf("Other MCU interrupt config.\n");
-    #endif
-
+    // Set INT0 to trogger on low
+    INT_MODE = (INT_MODE & ~((1 << ISC00) | (1 << ISC01)));
+    // Enable INT0
+    INT_ENABLE |= (1 << INT0);
     // Enable interrupts in general in the status register
     SREG |= (1 << SREG_I);
-    // Trigger mode for INT0 to "low", aka zeros
-    INT0_TRIGGER_MODE &= ~((1 << ISC00) | (1 << ISC01));
-    // Enable reading of INT0 interrupts
-    INT_ENABLE_MASK |= (1 << INT0);
         
     sei();
 }
 
 ISR(INT0_vect) {
-    // Check for source of interrupt
-    printf("Interrupt triggered.\n");
-
+    // 
     uint32_t general_interrupt_addr = SIR;
     uint32_t socket_interrupt_addr = S_IR;
-    uint8_t gen = 0, sock = 0;
+    uint8_t gen = 0, sock = 0, clearmsg = 0;
 
     // Check which socket is alerting
     read(general_interrupt_addr, &gen, 1, SIR_LEN);
-    for (uint8_t i = 0; i < 8; i++) {
+    for (uint8_t i = 0; i < SOCKETNO; i++) {
         if (EXTRACTBIT(gen, i)) {
+            // Get the socket's interrupt register to see what's going on
             sock = 0;
             socket_interrupt_addr = EMBEDSOCKET(socket_interrupt_addr, i);
             read(socket_interrupt_addr, &sock, 1, S_IR_LEN);
+            // The interruptmask is used to set which interrupts are active, so any extras can be ignored
             sock &= INTERRUPTMASK;
             if (sock > 0) {
+                // There are five possible interrupts
                 for (uint8_t j = 0; j < 5; j++) {
                     if (EXTRACTBIT(sock, j) > 0) {
-                        // Clear that interrupt bit
-                        uint8_t clearmsg = (1 << j);
+                        // Clear that interrupt bit by writing a 1 to it
+                        clearmsg = (1 << j);
                         write(socket_interrupt_addr, 1, &clearmsg);
 
                         (*w5500_interrupt)(i, j);
                     } 
                 }
             }
+            read(socket_interrupt_addr, &sock, 1, S_IR_LEN);
         }
     }
 }

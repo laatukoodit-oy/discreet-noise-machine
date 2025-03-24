@@ -9,6 +9,8 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
+
+
 /* AVR */
 // Shared values
 #define CLK PB0
@@ -16,30 +18,28 @@
 // Device-specific
 #if defined(__AVR_ATtiny85__)
     // External interrupt    
-    #define INT0_TRIGGER_MODE MCUCR
-    #define INT_ENABLE_MASK GIMSK
-    // Pin setup addresses and offsets
-    #define INTREG PORTB
-    #define INTR PB2
+    #define INT_MODE MCUCR
+    #define INT_ENABLE GIMSK
     #define MO PB3
     #define MI PB4
+    #define INTR PB2
+    #define INTREG DDRB
 #elif defined(__AVR_ATmega328P__)
-    #define INT0_TRIGGER_MODE EICRA
-    #define INT_ENABLE_MASK EIMSK
-    // Pin setup addresses and offsets
-    #define INTREG PORTD
-    #define INTR PD2
+    #define INT_MODE EICRA
+    #define INT_ENABLE EIMSK
     #define MO PB2
     #define MI PB3
-// Default to ATmega328P, I suppose
+    #define INTR PD2
+    #define INTREG DDRD
 #else 
-    #define INT0_TRIGGER_MODE EICRA
-    #define INT_ENABLE_MASK EIMSK
-    // Pin setup addresses and offsets
-    #define INTREG PORTD
-    #define INTR PD2
+    #error "Not a supported microcontroller"
+    // These are only here to stop the red squiggly lines
+    #define INT_MODE EICRA
+    #define INT_ENABLE EIMSK
     #define MO PB2
     #define MI PB3
+    #define INTR PD2
+    #define INTREG DDRD
 #endif
 
 
@@ -111,6 +111,20 @@
 #define S_RX_WR_LEN 2
 #define S_IMR_LEN 1
 
+// TCP ethernet communication modes
+#define PHY_HD10BTNN 0
+#define PHY_FD10BTNN 1
+#define PHY_HD100BTNN 2
+#define PHY_FD100BTNN 3
+#define PHY_HD100BTAN 4
+#define PHY_ALLAN 7
+// Phy offset
+#define OPMDC 3
+// Config set bit
+#define RST 7
+// Reset (apply config) bit
+#define OPMD 6
+
 // TCP commands for W5500
 #define TCPMODE 0x01
 #define OPEN 0x01
@@ -140,9 +154,14 @@
 
 
 typedef struct { 
-    uint8_t sockno, status, connected_ip_address[4], connected_port[2];
+    uint8_t sockno, 
+        status, 
+        connected_ip_address[4], 
+        connected_port[2];
     uint16_t portno;
 } Socket;
+
+#define SOCKETNO 1
 
 typedef struct W5500_SPI_thing {
     // Pointer to any buffer used for data storage 
@@ -151,25 +170,22 @@ typedef struct W5500_SPI_thing {
     // Who we are
     uint8_t ip_address[4];
     // Nice bits of data about what sockets are in use
-    Socket sockets[8];   
-
-    void (*tcp_listen)(Socket socket);
-    void (*tcp_get_connection_data)(Socket *socket);
-    void (*tcp_send)(Socket socket, uint16_t messagelen, char message[]);
-    void (*tcp_read_received)(struct W5500_SPI_thing w5500, Socket socket);
-    void (*tcp_disconnect)(Socket socket);
-    void (*tcp_close)(Socket socket);
+    Socket sockets[SOCKETNO];   
 } W5500_SPI;
 
-// Setup of various addresses
-W5500_SPI setup_w5500_spi(uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, int interrupt));
+// Device initialization
+void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, int interrupt));
+
+// Buffer manipulation
+void clear_spi_buffer(W5500_SPI *w5500);
+void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen);
 
 // Opens a port up for TCP Listen
-void tcp_listen(Socket socket);
+void tcp_listen(Socket *socket);
 void tcp_get_connection_data(Socket *socket);
-void tcp_send(Socket socket, uint16_t messagelen, char message[]);
-void tcp_read_received(W5500_SPI w5500, Socket socket);
-void tcp_disconnect(Socket socket);
-void tcp_close(Socket socket);
+void tcp_send(Socket *socket, uint16_t messagelen, char message[]);
+void tcp_read_received(W5500_SPI *w5500, Socket *socket);
+void tcp_disconnect(Socket *socket);
+void tcp_close(Socket *socket);
 
 #endif

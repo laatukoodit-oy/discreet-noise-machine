@@ -6,7 +6,7 @@
 #define SPIBUFSIZE 100
 uint8_t spi_buffer[SPIBUFSIZE] = {0,};
 
-W5500_SPI SPI;
+W5500_SPI W5500;
 
 void interrupt(int socketno, int interrupt);
 
@@ -15,20 +15,24 @@ int main(void) {
     stdout = &uart_output; // Redirect stdout to UART
 
     // IP address & other setup
-    SPI = setup_w5500_spi(spi_buffer, SPIBUFSIZE, &interrupt);
+    setup_w5500_spi(&W5500, spi_buffer, SPIBUFSIZE, &interrupt);
 
     // Opens socket 0 to a TCP listening state on port 9999
-    SPI.tcp_listen(SPI.sockets[0]);
+    tcp_listen(&W5500.sockets[0]);
     
     // Placeholder until interrupts are implemented
     for (;;) {
         _delay_ms(10000);
 
         // Update status
-        SPI.tcp_get_connection_data(&SPI.sockets[0]);
+        tcp_get_connection_data(&W5500.sockets[0]);
 
-        if (SPI.sockets[0].status == SOCK_CLOSED) {
-            SPI.tcp_listen(SPI.sockets[0]);
+        if (W5500.sockets[0].status == SOCK_CLOSED) {
+            tcp_listen(&W5500.sockets[0]);
+        }
+
+        if (W5500.sockets[0].status == SOCK_CLOSE_WAIT) {
+            tcp_listen(&W5500.sockets[0]);
         }
     }
 
@@ -36,30 +40,22 @@ int main(void) {
 }
 
 void interrupt(int socketno, int interrupt) {
-    printf("Interrupt received, socket %d and code %d.\n", socketno, interrupt);
-    char msg[] = {"HTTP/1.1 OK\nContent-Type: text/html\n\n<!DOCTYPE html><html><body><h1>Congratulations, you've hacked into the Laatukoodit Oy mainframe.</h1></body></html>"};
+    char msg[] = {"HTTP/1.1 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body><h1>Congratulations, you've hacked into the Laatukoodit Oy mainframe.</h1></body></html>"};
     
     if (interrupt == CON_INT) {
-        printf("Connected.\n");
-        SPI.tcp_read_received(SPI, SPI.sockets[socketno]);
-        SPI.tcp_send(SPI.sockets[socketno], sizeof(msg), msg);
-        SPI.tcp_disconnect(SPI.sockets[socketno]);
+        tcp_send(&W5500.sockets[socketno], sizeof(msg), msg);
+        tcp_disconnect(&W5500.sockets[socketno]);
     }
 
     if (interrupt == DISCON_INT) {
-        printf("Disconnected.\n");
-        SPI.tcp_read_received(SPI, SPI.sockets[socketno]);
-        SPI.tcp_listen(SPI.sockets[socketno]);
+        tcp_read_received(&W5500, &W5500.sockets[socketno]);
+        tcp_listen(&W5500.sockets[socketno]);
     }
 
     if (interrupt == RECV_INT) {
-        printf("Received a message.\n");
-        SPI.tcp_read_received(SPI, SPI.sockets[socketno]);
-        SPI.tcp_send(SPI.sockets[socketno], sizeof(msg), msg);
-        SPI.tcp_disconnect(SPI.sockets[socketno]);
+        tcp_read_received(&W5500, &W5500.sockets[socketno]);
     }
 
     if (interrupt == SENDOK_INT) {
-        printf("Message sent successfully.\n");
     }
 }
