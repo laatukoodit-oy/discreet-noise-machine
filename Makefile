@@ -6,16 +6,21 @@ BUILD_DIR := build
 
 CC := avr-gcc
 OBJCOPY := avr-objcopy
-CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wextra -I$(INCLUDE_DIR) -std=c23 -fstack-usage
+CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wextra -I$(INCLUDE_DIR) -std=c23 -MMD -fstack-usage
 LDFLAGS := -mmcu=$(MCU)
 
 SRCS := $(wildcard $(SRC_DIR)/*.c)
 OBJS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
+DEPS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.d, $(SRCS))
 
 ELF := $(BUILD_DIR)/program.elf
 HEX := $(BUILD_DIR)/program.hex
 
 all: $(HEX)
+
+# tells make that there are generated dependency files
+# which specify .o file dependencies
+-include $(DEPS)
 
 # $(HEX) is the final program we upload to the controller (build/program.hex)
 # and $(ELF) would be the linked binary (build/program.elf)
