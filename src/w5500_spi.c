@@ -42,7 +42,8 @@ void writeByte(uint8_t data);
 
 /* PUBLIC*/
 // Device initialization
-void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint16_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
+void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
+    uart_write_P(PSTR("Setup.\r\n"));
 
     // Single placeholder for multiple lists to prevent excessive stack use
     uint8_t ph_array[6];
@@ -182,7 +183,10 @@ void tcp_get_connection_data(Socket *socket) {
     }
 }
 
-void tcp_send(Socket *socket, uint16_t messagelen, char message[]) {
+// Sending a 0 through send_now allows you to postpone the sending of register contents, 
+// meaning you can fill up the buffer in small chunks
+bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem) {
+    uart_write_P(PSTR("TCP send.\r\n"));
     
     // Embed the socket number in the addresses to hit the right register block
     uint8_t socketmask = SOCKETMASK(socket->sockno);
@@ -202,7 +206,11 @@ void tcp_send(Socket *socket, uint16_t messagelen, char message[]) {
     tx_addr = EMBEDADDRESS(tx_addr, tx_pointer);
     
     // Write message to buffer
-    write(tx_addr, message_len, message);
+    if (progmem) {
+        write_P(tx_addr, message_len, message);
+    } else {
+        write(tx_addr, message_len, message);
+    }
 
     // Write a new value to the TX buffer write pointer to match post-input situation
     uint8_t new_tx_pointer[] = {(message_len + tx_pointer) >> 8, (message_len + tx_pointer)};
@@ -216,6 +224,7 @@ void tcp_send(Socket *socket, uint16_t messagelen, char message[]) {
 }
 
 void tcp_read_received(W5500_SPI *w5500, Socket *socket) {
+    uart_write_P(PSTR("TCP read received.\r\n"));
     
     // Embed the socket number in the address to hit the right register block
     uint8_t socketmask = SOCKETMASK(socket->sockno);
@@ -244,6 +253,8 @@ void tcp_read_received(W5500_SPI *w5500, Socket *socket) {
 }
 
 void tcp_disconnect(Socket *socket) {
+    uart_write_P(PSTR("TCP disconnect.\r\n"));
+    
     // Embed the socket number in the address to hit the right register block
     uint32_t com_addr = S_CR | SOCKETMASK(socket->sockno);
 
@@ -252,6 +263,8 @@ void tcp_disconnect(Socket *socket) {
 }
 
 void tcp_close(Socket *socket) {
+    uart_write_P(PSTR("TCP close.\r\n"));
+    
     // Embed the socket number in the address to hit right register block
     uint32_t com_addr = S_CR | SOCKETMASK(socket->sockno);
 
@@ -271,6 +284,8 @@ void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno) {
 }
 
 void toggle_interrupts(uint8_t socketno, bool set_on) {
+    uart_write_P(PSTR("Enable interrupts.\r\n"));
+    
     uint32_t gen_interrupt_mask_addr = SIMR;
     uint32_t sock_interrupt_mask_addr = S_IMR | SOCKETMASK(socketno);
 
@@ -291,6 +306,8 @@ void toggle_interrupts(uint8_t socketno, bool set_on) {
 
 /* Buffer manipulation */
 void clear_spi_buffer(W5500_SPI *w5500) { 
+    uart_write_P(PSTR("Clear buffer.\r\n"));
+    
     for (uint16_t i = 0; i < w5500->buf_index; i++) {
         w5500->spi_buffer[i] = 0;
     }
@@ -298,15 +315,16 @@ void clear_spi_buffer(W5500_SPI *w5500) {
 }
 
 #ifndef __AVR_ATtiny85__
-void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
-    uint16_t len = (printlen <= bufferlen ? printlen : bufferlen);
-    for (uint16_t i = 1; i < len; i++) {  
+void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
+    for (uint8_t i = 1; i < len; i++) {  
     }
 }
 #endif
 #ifdef __AVR_ATtiny85__
-void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen) {
-
+void print_buffer(uint8_t *buffer, uint8_t bufferlen, uint8_t printlen) {
+    buffer[bufferlen - 1] = 0;
+    uart_write(buffer);
 }
 #endif
 
@@ -337,10 +355,12 @@ void spi_init() {
 }
 
 // Conducts a read operation fetching information from register(s), number of fetched bytes given by readlen
-void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) {
+void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
     // Don't let a reading operation get interrupted by INT0, as that contains other
     // reads and writes that would mess with the chip select and message contents
     DISABLEINT0;
+
+    //uart_write_P(PSTR("Read.\r\n"));
 
     spi_init();
     
@@ -350,10 +370,10 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) 
     uint8_t byte = 0;
 
     // Check read length against available buffer size, cap if necessary
-    uint16_t len = (readlen <= bufferlen ? readlen : bufferlen);
+    uint8_t len = (read_len <= buffer_len ? read_len : buffer_len);
     // (could use some sort of error if not all can be read)
     
-    for (uint16_t i = 0; i < len; i++) {
+    for (uint8_t i = 0; i < len; i++) {
         // Reads MISO line, fills byte bit by bit
         byte = 0;
         for (int j = 0; j < 8; j++) {
@@ -361,7 +381,7 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) 
             byte = (byte << 1) + READINPUT;
             HIGH(CLK);
         }
-        buffer[(uint8_t)i] = byte;
+        buffer[i] = byte;
     }
     end_transmission();
 
@@ -369,7 +389,7 @@ void read(uint32_t addr, uint8_t *buffer, uint16_t bufferlen, uint16_t readlen) 
 }
 
 // Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
-void write(uint32_t addr, uint16_t datalen, uint8_t data[]) {
+void write(uint32_t addr, uint8_t data_len, uint8_t data[]) {
     // Don't let a writing operation get interrupted by INT0, as that contains other
     // reads and writes that would mess with the chip select and message contents
     DISABLEINT0;
@@ -382,8 +402,31 @@ void write(uint32_t addr, uint16_t datalen, uint8_t data[]) {
     start_transmission(address);
 
     // Uses writeByte to push message through the pipeline byte by byte
-    for (uint16_t i = 0; i < datalen; i++) {
+    for (uint8_t i = 0; i < data_len; i++) {
         writeByte(data[i]);
+    }
+
+    end_transmission();
+
+    ENABLEINT0;
+}
+
+// Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
+void write_P(uint32_t addr, uint8_t data_len, uint8_t data[]) {
+    // Don't let a writing operation get interrupted by INT0, as that contains other
+    // reads and writes that would mess with the chip select and message contents
+    DISABLEINT0;
+
+    spi_init();
+    
+    // Set write bit in header frame
+    uint32_t address = addr | (1 << 2);
+    // Send header
+    start_transmission(address);
+
+    // Uses writeByte to push message through the pipeline byte by byte
+    for (uint8_t i = 0; i < data_len; i++) {
+        writeByte(pgm_read_byte(data + i));
     }
 
     end_transmission();
@@ -432,6 +475,8 @@ void setup_atthing_interrupts(void) {
 }
 
 ISR(INT0_vect) {
+    uart_write_P(PSTR("INT0.\r\n"));
+    
     // 
     uint32_t general_interrupt_addr = SIR;
     uint32_t socket_interrupt_addr = S_IR;

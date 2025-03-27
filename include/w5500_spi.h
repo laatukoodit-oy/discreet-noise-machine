@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include "uart.h"
+#include <stdbool.h>
 
 
 #define ENABLEINT0 (INT_ENABLE |= (1 << INT0))
@@ -220,8 +222,9 @@ typedef struct {
 
 typedef struct W5500_SPI_thing {
     // Pointer to any buffer used for data storage 
-    uint8_t *spi_buffer;
-    uint16_t buf_length, buf_index;
+    uint8_t *spi_buffer,
+        buf_length, 
+        buf_index;
     // Who we are
     uint8_t ip_address[4];
     // Nice bits of data about what sockets are in use
@@ -233,12 +236,12 @@ void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint8_t buffer_len, void
 
 // Buffer manipulation
 void clear_spi_buffer(W5500_SPI *w5500);
-void print_buffer(uint8_t *buffer, uint16_t bufferlen, uint16_t printlen);
+void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t printlen);
 
 // Opens a port up for TCP Listen
 uint8_t tcp_listen(Socket *socket);
 void tcp_get_connection_data(Socket *socket);
-void tcp_send(Socket *socket, uint16_t messagelen, char message[]);
+bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem);
 void tcp_read_received(W5500_SPI *w5500, Socket *socket);
 void tcp_disconnect(Socket *socket);
 void tcp_close(Socket *socket);
@@ -246,8 +249,9 @@ void tcp_close(Socket *socket);
 // Sets up the IO pins to communicate with 
 void spi_init();
 // Get data from W5500
-void read(uint32_t addr, uint8_t *buffer, uint16_t buffer_len, uint16_t read_len);
+void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
 // Write data to the W5500
-void write(uint32_t addr, uint16_t data_len, uint8_t data[]);
+void write(uint32_t addr, uint8_t data_len, uint8_t data[]);
+void write_P(uint32_t addr, uint8_t data_len, uint8_t data[]);
 
 #endif
