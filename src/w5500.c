@@ -42,7 +42,7 @@ void writeByte(uint8_t data);
 
 /* PUBLIC*/
 // Device initialization
-void setup_w5500_spi(W5500_SPI *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
+void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
     uart_write_P(PSTR("Setup.\r\n"));
 
     // Single placeholder for multiple lists to prevent excessive stack use
@@ -226,7 +226,7 @@ bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem,
     return 0;
 }
 
-void tcp_read_received(W5500_SPI *w5500, Socket *socket) {
+void tcp_read_received(W5500 *w5500, Socket *socket) {
     uart_write_P(PSTR("TCP read received.\r\n"));
     
     // Embed the socket number in the address to hit the right register block
@@ -308,7 +308,7 @@ void toggle_interrupts(uint8_t socketno, bool set_on) {
 
 
 /* Buffer manipulation */
-void clear_spi_buffer(W5500_SPI *w5500) { 
+void clear_w5500_buffer(W5500 *w5500) { 
     uart_write_P(PSTR("Clear buffer.\r\n"));
     
     for (uint16_t i = 0; i < w5500->buf_index; i++) {
