@@ -1,7 +1,8 @@
 #include <avr/pgmspace.h>
 #include "uart.h"
 #include <util/delay.h>
-#include "w5500_spi.h"
+#include "w5500.h"
+#include <stdlib.h>
 
 // Buffer for data read from the W5500
 #define SPIBUFSIZE 100
@@ -22,25 +23,22 @@ int main(void) {
 
     // Opens socket 0 to a TCP listening state on port 9999
     tcp_listen(&W5500.sockets[0]);
+    uint8_t err;
+    do {
+        err = tcp_listen(&W5500.sockets[0]);
+    } while (err);
     
     // Placeholder until interrupts are implemented
     for (;;) {
-        /*
         _delay_ms(10000);
 
         // Update status
         tcp_get_connection_data(&W5500.sockets[0]);
-        
-        if (W5500.sockets[0].status == SOCK_CLOSED) {
-            uart_write_P(PSTR("Sock closed.\r\n"));
-            tcp_listen(&W5500.sockets[0]);
-        }
-
-        if (W5500.sockets[0].status == SOCK_CLOSE_WAIT) {
-            uart_write_P(PSTR("Sock closing.\r\n"));
-            tcp_listen(&W5500.sockets[0]);
-        } 
-        */
+        uart_write_P(PSTR("Socket 0 status: "));
+        char status[10];
+        utoa(W5500.sockets[0].status, status, 10);
+        print_buffer(status, 10, 5);
+        uart_write("\r\n");
     } 
 
     return 0;
@@ -59,7 +57,10 @@ void interrupt(int socketno, uint8_t interrupt) {
     if (interrupt & (1 << DISCON_INT)) {
         uart_write_P(PSTR("Discon_int.\r\n"));
         tcp_read_received(&W5500, &W5500.sockets[socketno]);
-        tcp_listen(&W5500.sockets[socketno]);
+        uint8_t err;
+        do {
+            err = tcp_listen(&W5500.sockets[socketno]);
+        } while (err);
     }
 
     if (interrupt & (1 << RECV_INT)) {

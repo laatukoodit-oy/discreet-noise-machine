@@ -241,8 +241,8 @@ void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t printlen);
 // Opens a port up for TCP Listen
 uint8_t tcp_listen(Socket *socket);
 void tcp_get_connection_data(Socket *socket);
-bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem);
 void tcp_read_received(W5500_SPI *w5500, Socket *socket);
+bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem, bool sendnow);
 void tcp_disconnect(Socket *socket);
 void tcp_close(Socket *socket);
 

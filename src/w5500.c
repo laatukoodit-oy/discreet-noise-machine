@@ -2,7 +2,7 @@
     A module for SPI communication between a W5500 and either an ATmega328P or ATtiny85
 */
 
-#include "w5500_spi.h"
+#include "w5500.h"
 
 // Macros for things too small to be a function yet too weird to read
 #define LOW(pin) PORTB &= ~(1 << pin)
@@ -126,7 +126,7 @@ uint8_t tcp_listen(Socket *socket) {
 
     // Assign port to socket
     uint8_t port[] = {(socket->portno >> 8), socket->portno};
-    write(port_addr, 1, port);
+    write(port_addr, 2, port);
 
     // Set socket mode to TCP
     command = TCPMODE;
@@ -185,7 +185,8 @@ void tcp_get_connection_data(Socket *socket) {
 
 // Sending a 0 through send_now allows you to postpone the sending of register contents, 
 // meaning you can fill up the buffer in small chunks
-bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem) {
+// Progmem if you're sending in a pointer to an array in program memory
+bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem, bool send_now) {
     uart_write_P(PSTR("TCP send.\r\n"));
     
     // Embed the socket number in the addresses to hit the right register block
@@ -217,8 +218,10 @@ bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem)
     write(tx_pointer_addr, S_TX_WR_LEN, new_tx_pointer);
 
     // Send the "send" command to pass the message to the other party
-    uint8_t send = SEND;
-    write(send_addr, 1, &send);
+    if (send_now) {
+        uint8_t send = SEND;
+        write(send_addr, 1, &send);
+    }
 
     return 0;
 }
@@ -316,15 +319,17 @@ void clear_spi_buffer(W5500_SPI *w5500) {
 
 #ifndef __AVR_ATtiny85__
 void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
-    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
-    for (uint8_t i = 1; i < len; i++) {  
-    }
+    
 }
 #endif
 #ifdef __AVR_ATtiny85__
-void print_buffer(uint8_t *buffer, uint8_t bufferlen, uint8_t printlen) {
-    buffer[bufferlen - 1] = 0;
-    uart_write(buffer);
+void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
+    uint8_t byte;
+    for (uint8_t i = 0; i < len; i++) {  
+        byte = buffer[i];
+        uart_putchar(byte);
+    }
 }
 #endif
 
