@@ -1,14 +1,10 @@
-#include <avr/interrupt.h>
-#include <avr/pgmspace.h>
-#include <util/delay.h>
-#include <avr/io.h>
-
+#include "uart.h"
 
 void uart_init() {
     // Set PB1 as output.
-    DDRB |= _BV(PB1);
+    SET_UART_PIN;
     // Idle high (UART inactive state).
-    PORTB |= _BV(PB1);
+    SET_UART_INACTIVE;
 }
 
 
@@ -31,7 +27,11 @@ void uart_putchar(char byte) {
     constexpr uint8_t bit_delay_us = 1'000'000 / baud_rate;
 
     // Disable interrupts to maintain UART timing.
-    cli();
+    uint8_t interrupts = SREG;
+    SREG &= ~(1 << SREG_I);
+
+    SET_UART_INACTIVE;
+    
 
     // Pull down PB1 (DO/TX) to signal start of a transmission.
     PORTB &= ~_BV(PB1);
@@ -64,11 +64,11 @@ void uart_putchar(char byte) {
     USICR &= ~_BV(USIWM0);
 
     // Pull PB1 (DO/TX) high at the end of the transmission.
-    PORTB |= _BV(PB1);
+    SET_UART_INACTIVE;
     _delay_us(bit_delay_us);
 
     // Re-enable interrupts.
-    sei();
+    SREG |= interrupts;
 }
 
 
@@ -83,6 +83,6 @@ void uart_write(const char *data) {
 // Write characters of a string stored in flash memory
 void uart_write_P(const char* data) {
     char byte;
-    while ((byte = pgm_read_char(data++)))
+    while ((byte = pgm_read_byte(data++)))
         uart_putchar(byte);
 }
