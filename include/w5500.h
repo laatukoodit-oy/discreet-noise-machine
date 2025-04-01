@@ -231,6 +231,8 @@ typedef struct W5500_thing {
     Socket sockets[SOCKETNO];   
 } W5500;
 
+extern W5500 Wizchip;
+
 // Device initialization
 void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt));
 

@@ -10,8 +10,6 @@ uint8_t spi_buffer[SPIBUFSIZE] = {0,};
 
 const char index_page[] PROGMEM = "HTTP/1.1 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body><h1>Test</h1></body></html>";
 
-W5500 Wizchip;
-
 void interrupt(int socketno, uint8_t interrupt);
 
 int main(void) {

@@ -17,6 +17,8 @@
 
 #define MIN(a, b) ((a < b) ? a : b)
 
+W5500 Wizchip;
+
 /* LOCAL*/
 // What gets called when an interrupt comes in from the W5500
 void (*w5500_interrupt)(int socketno, uint8_t interrupt);
