@@ -239,17 +239,17 @@ typedef struct W5500_thing {
 extern W5500 Wizchip;
 
 // Device initialization
-void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt));
+void setup_wizchip(uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt));
 
 // Buffer manipulation
-void clear_w5500_buffer(W5500 *w5500);
+void clear_wizchip_buffer(void);
 void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t printlen);
 
 // Opens a port up for TCP Listen
 uint8_t tcp_listen(Socket *socket);
 void tcp_get_connection_data(Socket *socket);
 bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem, bool sendnow);
-void tcp_read_received(W5500 *w5500, Socket *socket);
+void tcp_read_received(Socket *socket);
 void tcp_disconnect(Socket *socket);
 void tcp_close(Socket *socket);
 

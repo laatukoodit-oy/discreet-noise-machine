@@ -44,7 +44,7 @@ void writeByte(uint8_t data);
 
 /* PUBLIC*/
 // Device initialization
-void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
+void setup_wizchip(uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
     uart_write_P(PSTR("Setup.\r\n"));
 
     // Single placeholder for multiple lists to prevent excessive stack use
@@ -54,19 +54,19 @@ void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*inter
     ph_array[0] = 0;
     write(SIMR, 1, ph_array);
 
-    w5500->spi_buffer = buffer;
-    w5500->buf_length = buffer_len;
-    w5500->buf_index = 0;
+    Wizchip.spi_buffer = buffer;
+    Wizchip.buf_length = buffer_len;
+    Wizchip.buf_index = 0;
     // IP address to 192.168.0.15 (for group 15)
-    w5500->ip_address[0] = 0xC0; 
-    w5500->ip_address[1] = 0xA8; 
-    w5500->ip_address[2] = 0x00; 
-    w5500->ip_address[3] = 0x0F;
+    Wizchip.ip_address[0] = 0xC0; 
+    Wizchip.ip_address[1] = 0xA8; 
+    Wizchip.ip_address[2] = 0x00; 
+    Wizchip.ip_address[3] = 0x0F;
 
     for (uint16_t i = 0; i < SOCKETNO; i++) {
         Socket newsock;
         initialise_socket(&newsock, i, 9999 + i);
-        w5500->sockets[i] = newsock;
+        Wizchip.sockets[i] = newsock;
 
         toggle_interrupts(i, 0);
     }
@@ -103,7 +103,7 @@ void setup_w5500(W5500 *w5500, uint8_t *buffer, uint8_t buffer_len, void (*inter
     write(SHAR, 6, ph_array);
 
     // Send previously assigned IP address to W5500
-    write(SIPR, 4, w5500->ip_address);
+    write(SIPR, 4, Wizchip.ip_address);
 
     // Enable sending of interrupt signals on the W5500 and reading them here
     w5500_interrupt = interrupt_func;
@@ -228,7 +228,7 @@ bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem,
     return 0;
 }
 
-void tcp_read_received(W5500 *w5500, Socket *socket) {
+void tcp_read_received(Socket *socket) {
     uart_write_P(PSTR("TCP read received.\r\n"));
     
     // Embed the socket number in the address to hit the right register block
@@ -243,12 +243,12 @@ void tcp_read_received(W5500 *w5500, Socket *socket) {
     uint16_t rx_pointer = get_2_byte(rx_pointer_addr);
     rx_addr = EMBEDADDRESS(rx_addr, rx_pointer);
 
-    uint16_t read_amount = MIN(w5500->buf_length, received_amount);
+    uint16_t read_amount = MIN(Wizchip.buf_length, received_amount);
 
-    read(rx_addr, w5500->spi_buffer, w5500->buf_length, read_amount);
+    read(rx_addr, Wizchip.spi_buffer, Wizchip.buf_length, read_amount);
 
     // Update W55000's buffer read index
-    w5500->buf_index = read_amount;
+    Wizchip.buf_index = read_amount;
 
     // Update read pointer
     uint8_t new_rx_pointer[] = {(read_amount + rx_pointer) >> 8, (read_amount + rx_pointer)};
@@ -310,13 +310,13 @@ void toggle_interrupts(uint8_t socketno, bool set_on) {
 
 
 /* Buffer manipulation */
-void clear_w5500_buffer(W5500 *w5500) { 
+void clear_wizchip_buffer(void) { 
     uart_write_P(PSTR("Clear buffer.\r\n"));
     
-    for (uint16_t i = 0; i < w5500->buf_index; i++) {
-        w5500->spi_buffer[i] = 0;
+    for (uint16_t i = 0; i < Wizchip.buf_index; i++) {
+        Wizchip.spi_buffer[i] = 0;
     }
-    w5500->buf_index = 0;
+    Wizchip.buf_index = 0;
 }
 
 #ifndef __AVR_ATtiny85__
