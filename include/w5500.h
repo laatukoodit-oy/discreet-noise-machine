@@ -12,6 +12,30 @@
 #include <stdbool.h>
 
 
+/* Relevant for the user */
+
+// Number of sockets available for use in the W5500 
+#define SOCKETNO 1
+
+// TCP status codes
+#define SOCK_CLOSED 0x00
+#define SOCK_INIT 0x13
+#define SOCK_LISTEN 0x14
+#define SOCK_ESTABLISHED 0x17
+#define SOCK_CLOSE_WAIT 0x1C 
+
+/* Incoming interrupts */
+// Interrupt register offset values
+#define CON_INT 0
+#define DISCON_INT 1
+#define RECV_INT 2
+#define TIMEOUT_INT 3
+#define SENDOK_INT 4 
+// Leaves out the TCP timeout interrupt from sockets
+#define INTERRUPTMASK(bit) ((bit << CON_INT) | (bit << DISCON_INT) | (bit << RECV_INT) | (bit << SENDOK_INT))
+
+
+
 #define ENABLEINT0 (INT_ENABLE |= (1 << INT0))
 #define DISABLEINT0 (INT_ENABLE &= (INT_ENABLE & ~(1 << INT0)))
 
@@ -192,23 +216,6 @@
 #define SEND 0x20
 #define RECV 0x40
 
-// TCP status codes
-#define SOCK_CLOSED 0x00
-#define SOCK_INIT 0x13
-#define SOCK_LISTEN 0x14
-#define SOCK_ESTABLISHED 0x17
-#define SOCK_CLOSE_WAIT 0x1C 
-
-/* Incoming interrupts */
-// Interrupt register offset values
-#define CON_INT 0
-#define DISCON_INT 1
-#define RECV_INT 2
-#define TIMEOUT_INT 3
-#define SENDOK_INT 4 
-// Leaves out the TCP timeout interrupt from sockets
-#define INTERRUPTMASK(bit) ((bit << CON_INT) | (bit << DISCON_INT) | (bit << RECV_INT) | (bit << SENDOK_INT))
-
 
 typedef struct { 
     uint8_t sockno, 
@@ -217,8 +224,6 @@ typedef struct {
         connected_port[2];
     uint16_t portno;
 } Socket;
-
-#define SOCKETNO 1
 
 typedef struct W5500_thing {
     // Pointer to any buffer used for data storage 
