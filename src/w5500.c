@@ -3,323 +3,76 @@
 */
 
 #include "w5500.h"
-#include "dhcp.h"
 
-// Macros for things too small to be a function yet too weird to read
-#define EXTRACTBIT(byte, index) ((byte & (1 << index)) >> index)
-#define SOCKETMASK(sockno) (sockno << 5)
-#define EMBEDSOCKET(base_addr, sockno) ((base_addr & 0xFFFFFF1F) | (sockno << 5))
-#define EMBEDADDRESS(base_addr, new_addr) ((base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8))
-
-#define MIN(a, b) ((a < b) ? a : b)
 
 W5500 Wizchip;
 
-/* LOCAL*/
-// What gets called when an interrupt comes in from the W5500
-void (*w5500_interrupt)(int socketno, uint8_t interrupt);
-
-// Helper for socket port assignment
-void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno);
-void toggle_interrupts(uint8_t socketno, bool set_on);
 
 // Setting of various registers needed for INT0 interrupts
 void setup_atthing_interrupts(void);
 
 
-/* PUBLIC*/
 // Device initialization
-void setup_wizchip(uint8_t *buffer, uint8_t buffer_len, void (*interrupt_func)(int socketno, uint8_t interrupt)) {  
-    uart_write_P(PSTR("Setup.\r\n"));
+uint8_t setup_wizchip(void) {  
+    //uart_write_P(PSTR("Setup.\r\n"));
 
-    // Single placeholder for multiple lists to prevent excessive stack use
-    uint8_t ph_array[6];
-    
-    // Clears the socket interrupt mask on the W5500
-    ph_array[0] = 0;
-    write(SIMR, 1, ph_array);
+    Wizchip.interrupt_list_index = 0;
+    Wizchip.dhcp = &DHCP;
 
-    Wizchip.spi_buffer = buffer;
-    Wizchip.buf_length = buffer_len;
-    Wizchip.buf_index = 0;
-    // IP address to 192.168.0.15 (for group 15)
-    Wizchip.ip_address[0] = 0xC0; 
-    Wizchip.ip_address[1] = 0xA8; 
-    Wizchip.ip_address[2] = 0x00; 
-    Wizchip.ip_address[3] = 0x0F;
-
-    for (uint16_t i = 0; i < SOCKETNO; i++) {
-        Socket newsock;
-        initialise_socket(&newsock, i, 9999 + i);
-        Wizchip.sockets[i] = newsock;
-
-        toggle_interrupts(i, 0);
+    for (int i = 0; i < SOCKETNO; i++) {
+        Wizchip.sockets[i].sockno = i;
     }
+
+    // Clears the socket interrupt mask on the W5500
+    uint8_t command = 0;
+    write(SIMR, 1, &command);
 
     // Set up the link as a 10M half-duplex connection
     // Feed in the new config and "use these bits for configuration" setting
-    ph_array[0] = (1 << OPMD) | (PHY_HD10BTNN << OPMDC);
-    write(PHYCFGR, 1, ph_array);
+    command = (1 << OPMD) | (PHY_HD10BTNN << OPMDC);
+    write(PHYCFGR, 1, &command);
     // Apply config
-    ph_array[0] = (1 << RST);
-    write(PHYCFGR, 1, ph_array);
+    command = (1 << RST);
+    write(PHYCFGR, 1, &command);
 
-    // Gateway address to 192.168.0.1
-    ph_array[0] = 0xC0;
-    ph_array[1] = 0xA8;
-    ph_array[2] = 0x00;
-    ph_array[3] = 0x01;
-    write(GAR, 4, ph_array);
-
-    // Subnet mask to 255.255.255.0
-    ph_array[0] = 0xFF;
-    ph_array[1] = 0xFF; 
-    ph_array[2] = 0xFF;
-    ph_array[3] = 0x00;
-    write(SUBR, 4, ph_array);
+    uint8_t ip[] = {IP_ADDRESS};
+    write(SIPR, 4, ip);
+    // Our IP to 0.0.0.0
+    //write_singular(SIPR, 4, 0x00);
 
     // Mac address to 4A-36-EE-E0-34-AB
-    ph_array[0] = 0x4A;
-    ph_array[1] = 0x36;
-    ph_array[2] = 0xEE;
-    ph_array[3] = 0xE0;
-    ph_array[4] = 0x34;
-    ph_array[5] = 0xAB;    
-    write(SHAR, 6, ph_array);
+    uint8_t array[] = {MAC_ADDRESS};
+    write(SHAR, 6, array);
 
-    // Send previously assigned IP address to W5500
-    write(SIPR, 4, Wizchip.ip_address);
+    // Default gateway to 192.168.0.1
+    /*array[0] = 0xC0;
+    array[1] = 0xA8;
+    array[2] = 0x00;
+    array[3] = 0x01;
+    write(GAR, 4, array);*/
+    write_singular(GAR, 4, 0x00);
+
+    // Default subnet mask to 255.255.255.0
+    array[0] = 0xFF;
+    array[1] = 0xFF;
+    array[2] = 0xFF;
+    array[3] = 0x00;
+    write(SUBR, 4, array);
+
+    // Get an IP address
+    //activate_dhcp_client(&Wizchip.sockets[DHCP_SOCKET]);
+
+    uart_write("Acquired IP address: ");
+    read(SIPR, array, sizeof(array), 4);
+    print_buffer(array, sizeof(array), 4);
+    uart_write("\r\n");
 
     // Enable sending of interrupt signals on the W5500 and reading them here
-    w5500_interrupt = interrupt_func;
     setup_atthing_interrupts();
 
     uart_write_P(PSTR("Setup done.\r\n"));
-}
-
-
-/* LOCAL*/
-/* Socket operations */
-void initialise_socket(Socket *socket, uint8_t socketno, uint16_t portno) {
-    socket->sockno = socketno;
-    socket->portno = portno;
-    socket->status = 0;
-}
-
-void toggle_interrupts(uint8_t socketno, bool set_on) {
-    uart_write_P(PSTR("Enable interrupts.\r\n"));
-    
-    uint32_t gen_interrupt_mask_addr = SIMR;
-    uint32_t sock_interrupt_mask_addr = S_IMR | SOCKETMASK(socketno);
-
-    // Get existing socket interrupt mask register
-    uint8_t simr = 0;
-    read(gen_interrupt_mask_addr, &simr, 1, SIMR_LEN);
-
-    // Embed socket number into it
-    simr &= ~(1 << socketno);
-    simr |= (set_on << socketno);
-    write(gen_interrupt_mask_addr, 1, &simr);
-
-    // Send a list of accepted interrupts for the socket
-    uint8_t interrupts = INTERRUPTMASK(set_on);
-    write(sock_interrupt_mask_addr, 1, &interrupts);
-}
-
-
-/* Buffer manipulation */
-void clear_wizchip_buffer(void) { 
-    uart_write_P(PSTR("Clear buffer.\r\n"));
-    
-    for (uint16_t i = 0; i < Wizchip.buf_index; i++) {
-        Wizchip.spi_buffer[i] = 0;
-    }
-    Wizchip.buf_index = 0;
-}
-
-#ifndef __AVR_ATtiny85__
-void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
-    
-}
-#endif
-#ifdef __AVR_ATtiny85__
-void print_buffer(uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
-    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
-    uint8_t byte;
-    for (uint8_t i = 0; i < len; i++) {  
-        byte = buffer[i];
-        uart_putchar(byte);
-    }
-}
-#endif
-
-
-// 
-uint8_t tcp_listen(Socket *socket) {
-    uart_write_P(PSTR("TCP listen.\r\n"));
-
-    // Embed the socket number in the addresses to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket->sockno);
-    uint32_t port_addr = S_PORT | socketmask;
-    uint32_t mode_addr = S_MR | socketmask;
-    uint32_t com_addr = S_CR | socketmask;
-    uint32_t status_addr = S_SR | socketmask;
-    uint8_t command;
-
-    // Assign port to socket
-    uint8_t port[] = {(socket->portno >> 8), socket->portno};
-    write(port_addr, 2, port);
-
-    // Set socket mode to TCP
-    command = TCPMODE;
-    write(mode_addr, 1, &command);
-
-    // Open socket
-    command = OPEN;
-    write(com_addr, 1, &command);
-
-    // Ensure that the socket is ready to take a listen command
-    uint8_t status = 0;
-    uint8_t killswitch = 0;
-    do {
-        read(status_addr, &status, 1, S_SR_LEN);
-        killswitch++;
-        if (killswitch > 100) {
-            return status;
-        }
-    } while (status != SOCK_INIT);
-
-    // Get the socket listening
-    command = LISTEN;
-    write(com_addr, 1, &command);
-
-    // Make sure the socket is in fact listening
-    killswitch = 0;
-    do {
-        read(status_addr, &status, 1, S_SR_LEN);
-        killswitch++;
-        if (killswitch > 100) {
-            return status;
-        }
-    // SOCK_ESTABLISHED included in case there's been an immediate connection
-    } while (status != SOCK_LISTEN && status != SOCK_ESTABLISHED);
-    
-    // Enable interrupts for the socket
-    toggle_interrupts(socket->sockno, 1);
-
     return 0;
 }
-
-void tcp_get_connection_data(Socket *socket) {
-    // Embed the socket number in the address to hit the right register block
-    uint8_t socketmask = (socket->sockno << 5);
-    uint32_t status_addr = S_SR | socketmask;
-
-    read(status_addr, &socket->status, 1, S_SR_LEN);
-
-    if (socket->status == SOCK_ESTABLISHED) {
-        uint32_t ip_addr = S_DIPR | socketmask;
-        uint32_t port_addr = S_DPORT | socketmask;
-        read(ip_addr, socket->connected_ip_address, 4, S_DIPR_LEN);
-        read(port_addr, socket->connected_port, 2, S_DPORT_LEN);
-    }
-}
-
-// Sending a 0 through send_now allows you to postpone the sending of register contents, 
-// meaning you can fill up the buffer in small chunks
-// Progmem if you're sending in a pointer to an array in program memory
-bool tcp_send(Socket *socket, uint8_t message_len, char message[], bool progmem, bool send_now) {
-    uart_write_P(PSTR("TCP send.\r\n"));
-    
-    // Embed the socket number in the addresses to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket->sockno);
-    uint32_t tx_free_addr = S_TX_FSR | socketmask;
-    uint32_t tx_pointer_addr = S_TX_WR | socketmask;
-    uint32_t tx_addr = S_TX_BUF | socketmask;
-    uint32_t send_addr = S_CR | socketmask;
-
-    // Check space left in the buffer (shouldn't run out but you never know)
-    uint16_t send_amount = get_2_byte(tx_free_addr);
-    if (send_amount < message_len) {
-        return 1;
-    }
-  
-    // Get the TX buffer write pointer, adjust address to start writing from that point
-    uint16_t tx_pointer = get_2_byte(tx_pointer_addr);
-    tx_addr = EMBEDADDRESS(tx_addr, tx_pointer);
-    
-    // Write message to buffer
-    if (progmem) {
-        write_P(tx_addr, message_len, message);
-    } else {
-        write(tx_addr, message_len, message);
-    }
-
-    // Write a new value to the TX buffer write pointer to match post-input situation
-    uint8_t new_tx_pointer[] = {(message_len + tx_pointer) >> 8, (message_len + tx_pointer)};
-    write(tx_pointer_addr, S_TX_WR_LEN, new_tx_pointer);
-
-    // Send the "send" command to pass the message to the other party
-    if (send_now) {
-        uint8_t send = SEND;
-        write(send_addr, 1, &send);
-    }
-
-    return 0;
-}
-
-void tcp_read_received(Socket *socket) {
-    uart_write_P(PSTR("TCP read received.\r\n"));
-    
-    // Embed the socket number in the address to hit the right register block
-    uint8_t socketmask = SOCKETMASK(socket->sockno);
-    uint32_t rx_length_addr = S_RX_RSR | socketmask;
-    uint32_t rx_pointer_addr = S_RX_RD | socketmask;
-    uint32_t rx_addr = S_RX_BUF | socketmask;
-    uint32_t recv_addr = S_CR | socketmask;
-
-    // Check how much has come in and where you left off reading
-    uint16_t received_amount = get_2_byte(rx_length_addr);
-    uint16_t rx_pointer = get_2_byte(rx_pointer_addr);
-    rx_addr = EMBEDADDRESS(rx_addr, rx_pointer);
-
-    uint16_t read_amount = MIN(Wizchip.buf_length, received_amount);
-
-    read(rx_addr, Wizchip.spi_buffer, Wizchip.buf_length, read_amount);
-
-    // Update W55000's buffer read index
-    Wizchip.buf_index = read_amount;
-
-    // Update read pointer
-    uint8_t new_rx_pointer[] = {(read_amount + rx_pointer) >> 8, (read_amount + rx_pointer)};
-    write(rx_pointer_addr, sizeof(new_rx_pointer), new_rx_pointer);
-    uint8_t recv = RECV;
-    write(recv_addr, 1, &recv);
-}
-
-void tcp_disconnect(Socket *socket) {
-    uart_write_P(PSTR("TCP disconnect.\r\n"));
-    
-    // Embed the socket number in the address to hit the right register block
-    uint32_t com_addr = S_CR | SOCKETMASK(socket->sockno);
-
-    uint8_t discon = DISCON;
-    write(com_addr, 1, &discon);
-}
-
-void tcp_close(Socket *socket) {
-    uart_write_P(PSTR("TCP close.\r\n"));
-    
-    // Embed the socket number in the address to hit right register block
-    uint32_t com_addr = S_CR | SOCKETMASK(socket->sockno);
-
-    uint8_t close = CLOSE;
-    write(com_addr, 1, &close);
-
-    toggle_interrupts(socket->sockno, 0);
-}
-
-
 
 void setup_atthing_interrupts(void) {
     cli();
@@ -327,36 +80,54 @@ void setup_atthing_interrupts(void) {
     // Set INT0 to trogger on low
     INT_MODE = (INT_MODE & ~((1 << ISC00) | (1 << ISC01)));
     // Enable INT0
-    ENABLEINT0;
+    INT_ENABLE |= (1 << INT0);
     // Enable interrupts in general in the status register
     sei();
 }
 
 ISR(INT0_vect) {
-    uart_write_P(PSTR("INT0.\r\n"));
+    //uart_write_P(PSTR("INT0.\r\n"));
     
-    // 
     uint32_t general_interrupt_addr = SIR;
     uint32_t socket_interrupt_addr = S_IR;
-    uint8_t gen = 0, interrupts = 0;
+    uint8_t sockets = 0, interrupts = 0;
 
-    // Check which socket is alerting
-    read(general_interrupt_addr, &gen, 1, SIR_LEN);
+    // Fetch interrupt register to check which socket is alerting
+    read(general_interrupt_addr, &sockets, 1, SIR_LEN);
+    // Test for each socket
     for (uint8_t i = 0; i < SOCKETNO; i++) {
-        if (EXTRACTBIT(gen, i)) {
-            // Get the socket's interrupt register to see what's going on
-            interrupts = 0;
-            socket_interrupt_addr = EMBEDSOCKET(socket_interrupt_addr, i);
-            read(socket_interrupt_addr, &interrupts, 1, S_IR_LEN);
-            // The interruptmask is used to set which interrupts are active, so any extras can be ignored
-            interrupts &= INTERRUPTMASK(1);
-            if (interrupts > 0) {
-                // Write 1's to the interrupts to clear them
-                write(socket_interrupt_addr, 1, &interrupts);
-                // Pass interrupt info on
-                (*w5500_interrupt)(i, interrupts);
-            }
+        if (EXTRACTBIT(sockets, i) == 0) {
+            continue;
         }
+
+        // Get the socket's interrupt register to see what's going on
+        interrupts = 0;
+        socket_interrupt_addr = EMBEDSOCKET(socket_interrupt_addr, i);
+        read(socket_interrupt_addr, &interrupts, 1, S_IR_LEN);
+
+        print_buffer(&interrupts, 1, 1);
+
+        // The interrupt mask is used to set which interrupts are active, 
+        // so the mask can be used to filter out any extras that shouldn't cause an alert
+        interrupts &= Wizchip.sockets[i].interrupts;
+
+        if (interrupts == 0) {
+            continue;
+        }
+
+        // Write 1s to the interrupts to clear them
+        write(socket_interrupt_addr, 1, &interrupts);
+
+        // Make sure you don't go out of bounds with the list size
+        if (Wizchip.interrupt_list_index >= (INTERRUPT_LIST_SIZE - 1)) {
+            continue;
+        }
+
+        // Embeds the socket number into the three unused bits of the interrupt byte
+        Wizchip.interrupt_list[Wizchip.interrupt_list_index] = (i << 5) | interrupts;
+        // Pass interrupt info onto the list
+        Wizchip.interrupt_list_index++;
     }
 }
+
 

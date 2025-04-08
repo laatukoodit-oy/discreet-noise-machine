@@ -86,3 +86,20 @@ void uart_write_P(const char* data) {
     while ((byte = pgm_read_byte(data++)))
         uart_putchar(byte);
 }
+
+
+#ifndef __AVR_ATtiny85__
+void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+    
+}
+#endif
+#ifdef __AVR_ATtiny85__
+void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
+    uint8_t byte;
+    for (uint8_t i = 0; i < len; i++) {  
+        byte = buffer[i];
+        uart_putchar(byte);
+    }
+}
+#endif

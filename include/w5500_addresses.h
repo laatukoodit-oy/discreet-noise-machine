@@ -1,5 +1,4 @@
-#ifndef W5500_ADDRESSES_H
-#define W5500_ADDRESSES_H
+#pragma once
 
 /* Addresses from the common register block, first byte is irrelevant, only the last three matter
 (bytes 1 and 2 are the address, last gets used as basis for a control frame) */
@@ -99,5 +98,3 @@
 #define S_RX_RD_LEN 2
 #define S_RX_WR_LEN 2
 #define S_IMR_LEN 1
-
-#endif

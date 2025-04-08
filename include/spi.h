@@ -1,11 +1,10 @@
-#ifndef W5500_SPI_H
-#define W5500_SPI_H
+#pragma once
 
-#include <stdio.h>
 #include <avr/io.h>
+#include <avr/pgmspace.h>
+#include <avr/interrupt.h>
 
-
-/* AVR */
+/* SPI */
 // Device-specific pin assignments
 #if defined(__AVR_ATtiny85__)
     // External interrupt    
@@ -55,14 +54,27 @@
     #define INTREG DDRB
 #endif
 
+#define EXTRACTBIT(byte, index) ((byte & (1 << index)) >> index)
+#define ENABLEINT0 (INT_ENABLE |= (1 << INT0))
+#define DISABLEINT0 (INT_ENABLE &= (INT_ENABLE & ~(1 << INT0)))
+
+/* SPI */
 // Reads 2-byte value until it stabilises
 uint16_t get_2_byte(uint32_t addr);
 // Sets up the IO pins used for communication
 void spi_init();
+
 // Get data from W5500
 void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
 // Write data to the W5500
-void write(uint32_t addr, uint8_t data_len, uint8_t data[]);
-void write_P(uint32_t addr, uint8_t data_len, uint8_t data[]);
+// The three writes: from array, from progmem, repeats a single character
+void write(uint32_t addr, uint8_t data_len, const uint8_t *data);
+void write_P(uint32_t addr, uint8_t data_len, const uint8_t *data);
+void write_singular(uint32_t addr, uint8_t data_len, uint8_t data);
 
-#endif
+// Sends header to start off transmission
+void start_transmission(uint32_t addr);
+// Chip select low
+void end_transmission(void);
+// 8 cycles of shifting a byte and setting an output port based on said bit
+void write_byte(uint8_t data);
