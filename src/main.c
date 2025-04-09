@@ -1,25 +1,19 @@
-#include <avr/pgmspace.h>
-#include "uart.h"
 #include <util/delay.h>
-#include "w5500.h"
 #include <stdlib.h>
+#include "w5500.h"
 
-// Buffer for data read from the W5500
-#define SPIBUFSIZE 100
-uint8_t spi_buffer[SPIBUFSIZE] = {0,};
 
 const char index_page[] PROGMEM = "HTTP/1.1 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body><h1>Test</h1></body></html>";
 
-W5500 Wizchip;
-
-void interrupt(int socketno, uint8_t interrupt);
+void shuffle_interrupts();
 
 int main(void) {
-    //uart_init();
-    //stdout = &uart_output; // Redirect stdout to UART
-
     // IP address & other setup
-    setup_w5500(&Wizchip, spi_buffer, SPIBUFSIZE, &interrupt);
+    setup_wizchip();
+
+    // Initialise the server socket
+    uint8_t s0_interrupt = (1 << RECV_INT) | (1 << DISCON_INT);
+    initialise_socket(&Wizchip.sockets[0], TCP_MODE, 9999, s0_interrupt);
 
     // Opens socket 0 to a TCP listening state on port 9999
     uint8_t err;
@@ -27,48 +21,57 @@ int main(void) {
         err = tcp_listen(&Wizchip.sockets[0]);
     } while (err);
     
-    // Placeholder until interrupts are implemented
-    for (;;) {
-        _delay_ms(10000);
+    for (;;) {    
+        // Check the list for a new interrupt
+        if (Wizchip.interrupt_list_index == 0) {
+            continue;
+        }
 
-        // Update status
-        tcp_get_connection_data(&Wizchip.sockets[0]);
-        uart_write_P(PSTR("Socket 0 status: "));
-        char status[10];
-        utoa(Wizchip.sockets[0].status, status, 10);
-        print_buffer(status, 10, 5);
-        uart_write("\r\n");
-    } 
+        uart_write_P(PSTR("Interrupt called.\r\n"));
+
+        // Extract the socket number from the list
+        uint8_t interrupt = Wizchip.interrupt_list[0];
+        uint8_t sockno = interrupt >> 5;
+
+        if (sockno == DHCP_SOCKET) {
+            dhcp_interrupt(&Wizchip.sockets[DHCP_SOCKET], interrupt);
+            shuffle_interrupts();
+            continue;
+        }
+
+        uint8_t buffer[20] = {0};
+
+        if (interrupt & (1 << DISCON_INT)) {
+            uart_write_P(PSTR("Discon_int.\r\n"));
+            tcp_read_received(&Wizchip.sockets[sockno], buffer, 20);
+            print_buffer(buffer, 20, 20);
+            uint8_t err;
+            do {
+                err = tcp_listen(&Wizchip.sockets[sockno]);
+            } while (err);
+        }
+    
+        if (interrupt & (1 << RECV_INT)) {
+            uart_write_P(PSTR("Recv_int.\r\n"));
+            tcp_read_received(&Wizchip.sockets[sockno], buffer, 20);
+            print_buffer(buffer, 20, 20);
+            tcp_send(&Wizchip.sockets[sockno], sizeof(index_page), index_page, 1, 1);
+            tcp_disconnect(&Wizchip.sockets[sockno]);
+        }
+        
+        shuffle_interrupts();
+    }
 
     return 0;
 }
 
-void interrupt(int socketno, uint8_t interrupt) {
-    uart_write_P(PSTR("Interrupt called.\r\n"));
-    
-    if (interrupt & (1 << CON_INT)) {
-        uart_write_P(PSTR("Con_int.\r\n"));
-        int length = strlen_P(index_page);
-        tcp_send(&Wizchip.sockets[socketno], length, index_page, 1, 1);
-        tcp_disconnect(&Wizchip.sockets[socketno]);
+void shuffle_interrupts() {
+    cli();
+    // Shuffle everything along down the list
+    for (int i = 0; i < Wizchip.interrupt_list_index; i++) {
+        Wizchip.interrupt_list[i] = Wizchip.interrupt_list[i + 1];
     }
-
-    if (interrupt & (1 << DISCON_INT)) {
-        uart_write_P(PSTR("Discon_int.\r\n"));
-        tcp_read_received(&Wizchip, &Wizchip.sockets[socketno]);
-        uint8_t err;
-        do {
-            err = tcp_listen(&Wizchip.sockets[socketno]);
-        } while (err);
-    }
-
-    if (interrupt & (1 << RECV_INT)) {
-        uart_write_P(PSTR("Recv_int.\r\n"));
-        tcp_read_received(&Wizchip, &Wizchip.sockets[socketno]);
-
-    }
-
-    if (interrupt & (1 << SENDOK_INT)) {
-        uart_write_P(PSTR("Sendok_int.\r\n"));
-    }
+    Wizchip.interrupt_list_index--;
+    Wizchip.interrupt_list[Wizchip.interrupt_list_index] = 0;
+    sei();
 }
