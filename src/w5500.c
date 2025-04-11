@@ -1,20 +1,21 @@
 /*
-    A module for SPI communication between a W5500 and either an ATmega328P or ATtiny85
+    A module for ethernet communication by an ATmega328P or ATtiny85 with a W5500
 */
 
 #include "w5500.h"
 
 
+// The module provides a single W5500 instance to the user
 W5500 Wizchip;
 
 
-// Setting of various registers needed for INT0 interrupts
+/* Setting of various registers needed for INT0 interrupts */ 
 void setup_atthing_interrupts(void);
 
 
-// Device initialization
-uint8_t setup_wizchip(void) {  
-    //uart_write_P(PSTR("Setup.\r\n"));
+/* Device initialization */ 
+void setup_wizchip(void) {  
+    uart_write_P(PSTR("Setup.\r\n"));
 
     Wizchip.interrupt_list_index = 0;
     Wizchip.dhcp = &DHCP;
@@ -29,10 +30,10 @@ uint8_t setup_wizchip(void) {
 
     // Set up the link as a 10M half-duplex connection
     // Feed in the new config and "use these bits for configuration" setting
-    command = (1 << OPMD) | (PHY_HD10BTNN << OPMDC);
+    command = _BV(OPMD) | (PHY_HD10BTNN << OPMDC);
     write(PHYCFGR, 1, &command);
     // Apply config
-    command = (1 << RST);
+    command = _BV(RST);
     write(PHYCFGR, 1, &command);
 
     uint8_t ip[] = {IP_ADDRESS};
@@ -63,31 +64,35 @@ uint8_t setup_wizchip(void) {
     //activate_dhcp_client(&Wizchip.sockets[DHCP_SOCKET]);
 
     uart_write("Acquired IP address: ");
-    read(SIPR, array, sizeof(array), 4);
-    print_buffer(array, sizeof(array), 4);
+    read(SIPR, ip, sizeof(ip), 4);
+    for (int i = 0; i < 4; i++) {
+        utoa(ip[i], array, 10);
+        print_buffer(array, sizeof(array), 3);
+        array[1] = 0;
+        array[2] = 0;
+        uart_write(".");
+    }
     uart_write("\r\n");
 
     // Enable sending of interrupt signals on the W5500 and reading them here
     setup_atthing_interrupts();
 
     uart_write_P(PSTR("Setup done.\r\n"));
-    return 0;
 }
 
+/* Setting of various registers needed for INT0 interrupts */ 
 void setup_atthing_interrupts(void) {
     cli();
 
     // Set INT0 to trogger on low
-    INT_MODE = (INT_MODE & ~((1 << ISC00) | (1 << ISC01)));
+    INT_MODE = (INT_MODE & ~(_BV(ISC00) | _BV(ISC01)));
     // Enable INT0
-    INT_ENABLE |= (1 << INT0);
+    INT_ENABLE |= _BV(INT0);
     // Enable interrupts in general in the status register
     sei();
 }
 
 ISR(INT0_vect) {
-    //uart_write_P(PSTR("INT0.\r\n"));
-    
     uint32_t general_interrupt_addr = SIR;
     uint32_t socket_interrupt_addr = S_IR;
     uint8_t sockets = 0, interrupts = 0;
@@ -105,27 +110,31 @@ ISR(INT0_vect) {
         socket_interrupt_addr = EMBEDSOCKET(socket_interrupt_addr, i);
         read(socket_interrupt_addr, &interrupts, 1, S_IR_LEN);
 
-        print_buffer(&interrupts, 1, 1);
+        // TCP sockets' tx buffer pointers are initialized on connection, so an update is necessary
+        if (Wizchip.sockets[i].mode == TCP_MODE && (interrupts & CON_INT)) {
+            uint32_t read_pointer_addr = S_TX_RD | SOCKETMASK(i);
+            Wizchip.sockets[i].tx_pointer = get_2_byte(read_pointer_addr);
+        }
+
+        // Write 1s to the interrupts to clear them
+        write(socket_interrupt_addr, 1, &interrupts);
 
         // The interrupt mask is used to set which interrupts are active, 
         // so the mask can be used to filter out any extras that shouldn't cause an alert
         interrupts &= Wizchip.sockets[i].interrupts;
 
+        // If there's an interrupt, add it to the list
         if (interrupts == 0) {
             continue;
         }
-
-        // Write 1s to the interrupts to clear them
-        write(socket_interrupt_addr, 1, &interrupts);
 
         // Make sure you don't go out of bounds with the list size
         if (Wizchip.interrupt_list_index >= (INTERRUPT_LIST_SIZE - 1)) {
             continue;
         }
 
-        // Embeds the socket number into the three unused bits of the interrupt byte
+        // Embed the socket number into the three unused bits of the interrupt byte
         Wizchip.interrupt_list[Wizchip.interrupt_list_index] = (i << 5) | interrupts;
-        // Pass interrupt info onto the list
         Wizchip.interrupt_list_index++;
     }
 }

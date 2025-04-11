@@ -1,8 +1,9 @@
-#pragma once
-
 /*
     A module for ethernet communication by an ATmega328P or ATtiny85 with a W5500
 */
+
+#pragma once
+
 
 #include <avr/interrupt.h>
 #include <stdbool.h>
@@ -46,6 +47,7 @@
 // The last socket in the list is reserved for DHCP use
 #define DHCP_SOCKET (SOCKETNO - 1)
 
+// The number of interrupts that can be stored before new ones get dropped
 #define INTERRUPT_LIST_SIZE 5
 
 
@@ -55,7 +57,7 @@ typedef struct {
     DHCP_Client *dhcp;
     // Nice bits of data about what sockets are in use
     Socket sockets[SOCKETNO];
-    // A list of interrupts that have arrived from 
+    // A list of interrupts that have arrived from W5500
     uint8_t interrupt_list[INTERRUPT_LIST_SIZE];
     volatile uint8_t interrupt_list_index;
 } W5500;
@@ -66,4 +68,4 @@ extern W5500 Wizchip;
 
 
 // Device initialization
-uint8_t setup_wizchip();
+void setup_wizchip(void);

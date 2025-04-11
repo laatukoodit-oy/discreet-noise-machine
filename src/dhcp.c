@@ -1,32 +1,39 @@
+/*
+    A limited DHCP client for the W5500
+*/
+
 #include "dhcp.h"
 
 const uint8_t dhcp_frame_start[END_OF_HEADER] PROGMEM = {BOOTREQUEST, HTYPE, HLEN, HOPS, XID, [10] = FLAGS, [28] = MAC_ADDRESS};
+
+/* A single instance of DHCP Client for our use. */
 DHCP_Client DHCP;
 
-void send_dhcp_frame(const Socket *socket);
+/* Compiles a frame from various options, sends it to recipient. */
+void send_dhcp_frame(Socket *socket);
 
-/* DHCP */
+/* Sets up the socket used for transmissions and starts the IP address lease process. */
 uint8_t activate_dhcp_client(Socket *socket) {
     //uart_write_P(PSTR("Starting DHCP activation.\r\n"));
+
+    uint32_t dest_ip_address = S_DIPR | SOCKETMASK(socket->sockno);
+    uint32_t dest_mac_address = S_DHAR | SOCKETMASK(socket->sockno);
+    uint32_t dest_port_address = S_DPORT | SOCKETMASK(socket->sockno);
 
     // 
     DHCP.dhcp_status = DISCOVER;
     
     // Set up socket
-    initialise_socket(socket, UDP_MODE, CLIENT_PORT, ((1 << RECV_INT) | (1 << SENDOK_INT)));
+    initialise_socket(socket, UDP_MODE, CLIENT_PORT, (RECV_INT | SENDOK_INT));
 
-    // Prep the socket for the first broadcast transmission
-    uint8_t socketmask = SOCKETMASK(socket->sockno);
-    uint32_t dest_ip_address = S_DIPR | socketmask;
-    uint32_t dest_mac_address = S_DHAR | socketmask;
-    uint32_t dest_port_address = S_DPORT | socketmask;
+    // Prep the socket for the first, broadcast, transmission
 
     // Destination address to 255.255.255.255 for broadcast
-    uint8_t dest_ip[4] = {0xC0, 0xA8, 0x00, 0xFF};
-    write(dest_ip_address, 4, dest_ip);
-    //write_singular(dest_ip_address, 4, 0xFF);
+    //uint8_t dest_ip[4] = {0xC0, 0xA8, 0x00, 0xFF};
+    //write(dest_ip_address, 4, dest_ip);
+    write_singular(dest_ip_address, 4, 0xFF);
 
-    // Set the destination MAC to 0xFF-FF-FF-FF-FF-FF
+    // Set the destination MAC to FF-FF-FF-FF-FF-FF
     write_singular(dest_mac_address, 6, 0xFF);
 
     // Destination port to 67 for DHCP server
@@ -41,6 +48,7 @@ uint8_t activate_dhcp_client(Socket *socket) {
     return 0;
 }
 
+/* Interrupt handler for incoming messages */
 void dhcp_interrupt(Socket *socket, uint8_t interrupt) {
     uart_write_P(PSTR("DHCP interrupt called: "));
     char buffer[4];
@@ -48,43 +56,40 @@ void dhcp_interrupt(Socket *socket, uint8_t interrupt) {
     uart_write("\r\n");
 }
 
-void send_dhcp_frame(const Socket *socket) {
+/* Compiles a frame from various options, sends it to recipient. */
+void send_dhcp_frame(Socket *socket) {
     uint32_t tx_address = S_TX_BUF | SOCKETMASK(socket->sockno);
-    uint32_t tx_wr_address = S_TX_WR | SOCKETMASK(socket->sockno);
-    
-    // Acquire the TX buffer write pointer
-    uint16_t write_pointer = get_2_byte(tx_wr_address);
 
     // Embed the write pointer to the address to get a starting point
-    tx_address = EMBEDADDRESS(tx_address, write_pointer);
+    tx_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
 
     // Send in the base frame start
     write_P(tx_address, END_OF_HEADER, dhcp_frame_start);
 
     /* Make additions: */
-    // Fill rest of hardware address and additional options with zeros
-    uint16_t offset = write_pointer + END_OF_HEADER;
-    uint32_t altered_address = EMBEDADDRESS(tx_address, offset);
+    // Fill rest of hardware address and additional options with zeroes
+    socket->tx_pointer += END_OF_HEADER;
+    uint32_t altered_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
     write_singular(altered_address, HEADER_ZEROES, 0x00);
-    offset += HEADER_ZEROES;
+    socket->tx_pointer += HEADER_ZEROES;
 
     // Write in options
     // Magic cookie
-    altered_address = EMBEDADDRESS(tx_address, offset);
+    altered_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
     uint8_t option[6] = {0x63, 0x82, 0x53, 0x63, 0x00, 0x00};
     write(altered_address, 4, option);
-    offset += 4;
+    socket->tx_pointer += 4;
 
     // The type of the message
-    altered_address = EMBEDADDRESS(tx_address, offset);
+    altered_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
     option[0] = MESSAGETYPE;
     option[1] = MESSAGETYPE_LEN;
     option[2] = DHCP.dhcp_status;
     write(altered_address, 3, option);
-    offset += 3;
+    socket->tx_pointer += 3;
 
     // Our requested IP address 
-    altered_address = EMBEDADDRESS(tx_address, offset);
+    altered_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
     // Read the address from the W5500 and send that
     //read(SIPR, &option[2], 4, 4);
     uint8_t ip[] = {IP_ADDRESS};
@@ -95,30 +100,15 @@ void send_dhcp_frame(const Socket *socket) {
     option[4] = ip[2];
     option[5] = ip[3];
     write(altered_address, 6, option);
-    offset += 6;
+    socket->tx_pointer += 6;
 
     // The very important "end" option
-    altered_address = EMBEDADDRESS(tx_address, offset);
+    altered_address = EMBEDADDRESS(tx_address, socket->tx_pointer);
     option[0] = 0xFF;
     option[1] = 0x00;
     write(altered_address, 2, option);
-    offset += 2;
+    socket->tx_pointer += 2;
 
-    // Update write pointer
-    option[0] = offset >> 8;
-    option[1] = offset;
-    write(tx_wr_address, 2, option);
-
-    // Check what we're sending
-    offset = write_pointer;
-    for (int i = 0; i < 50; i++) {
-        altered_address = EMBEDADDRESS(S_TX_BUF, (offset + (uint32_t)(i * 6))) | SOCKETMASK(socket->sockno);
-        read(altered_address, option, sizeof(option), 6);
-        print_buffer(option, sizeof(option), 6);
-    }
-
-    // Send the frame
-    uint32_t send_addr = S_CR | SOCKETMASK(socket->sockno);
-    option[0] = SEND_MAC;
-    write(send_addr, 1, option);
+    // Send the message out
+    send_send_command(socket);
 }
