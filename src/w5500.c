@@ -8,76 +8,38 @@
 // The module provides a single W5500 instance to the user
 W5500 Wizchip;
 
-
-/* Setting of various registers needed for INT0 interrupts */ 
-void setup_atthing_interrupts(void);
-
-
 /* Device initialization */ 
 void setup_wizchip(void) {  
-    uart_write_P(PSTR("Setup.\r\n"));
-
     Wizchip.interrupt_list_index = 0;
-    Wizchip.dhcp = &DHCP;
+
+    ASSIGN(DHCP.our_ip, 0, 0, 0, 0, 0);
+    ASSIGN(DHCP.server, 0, 0, 0, 0, 0);
+    ASSIGN(DHCP.submask, 0, 0, 0, 0, 0);
 
     for (int i = 0; i < SOCKETNO; i++) {
         Wizchip.sockets[i].sockno = i;
     }
 
-    // Clears the socket interrupt mask on the W5500
-    uint8_t command = 0;
-    write(SIMR, 1, &command);
-
-    // Set up the link as a 10M half-duplex connection
+    // Set up the link as a 100M autonegotiated connection
     // Feed in the new config and "use these bits for configuration" setting
-    command = _BV(OPMD) | (PHY_HD10BTNN << OPMDC);
+    uint8_t command = _BV(OPMD) | (PHY_ALLAN << OPMDC);
     write(PHYCFGR, 1, &command);
     // Apply config
     command = _BV(RST);
     write(PHYCFGR, 1, &command);
 
-    uint8_t ip[] = {IP_ADDRESS};
-    write(SIPR, 4, ip);
-    // Our IP to 0.0.0.0
-    //write_singular(SIPR, 4, 0x00);
+    // Clears the socket interrupt mask on the W5500
+    command = 0;
+    write(SIMR, 1, &command);
 
-    // Mac address to 4A-36-EE-E0-34-AB
-    uint8_t array[] = {MAC_ADDRESS};
-    write(SHAR, 6, array);
+    
+    set_network();
 
-    // Default gateway to 192.168.0.1
-    /*array[0] = 0xC0;
-    array[1] = 0xA8;
-    array[2] = 0x00;
-    array[3] = 0x01;
-    write(GAR, 4, array);*/
-    write_singular(GAR, 4, 0x00);
+    // Send the first DHCP discover
+    assemble_macraw_frame(&Wizchip.sockets[DHCP_SOCKET]);
 
-    // Default subnet mask to 255.255.255.0
-    array[0] = 0xFF;
-    array[1] = 0xFF;
-    array[2] = 0xFF;
-    array[3] = 0x00;
-    write(SUBR, 4, array);
-
-    // Get an IP address
-    //activate_dhcp_client(&Wizchip.sockets[DHCP_SOCKET]);
-
-    uart_write("Acquired IP address: ");
-    read(SIPR, ip, sizeof(ip), 4);
-    for (int i = 0; i < 4; i++) {
-        utoa(ip[i], array, 10);
-        print_buffer(array, sizeof(array), 3);
-        array[1] = 0;
-        array[2] = 0;
-        uart_write(".");
-    }
-    uart_write("\r\n");
-
-    // Enable sending of interrupt signals on the W5500 and reading them here
+    // Enable interrupts on the microcontroller
     setup_atthing_interrupts();
-
-    uart_write_P(PSTR("Setup done.\r\n"));
 }
 
 /* Setting of various registers needed for INT0 interrupts */ 

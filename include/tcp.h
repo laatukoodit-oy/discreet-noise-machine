@@ -25,7 +25,7 @@
 
 
 /* Basic setup to get the socket ready for operation. */
-void tcp_initialise_socket(Socket *socket, uint16_t portno, uint8_t interrupts);
+void tcp_socket_initialise(Socket *socket, uint16_t portno, uint8_t interrupts);
 /*  Puts the socket into TCP listen mode. 
     If the socket setup doesn't proceed as expected, returns the status code of the socket. */ 
 uint8_t tcp_listen(Socket *socket);

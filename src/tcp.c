@@ -6,8 +6,8 @@
 
 
 /* Basic setup to get the socket ready for operation. */
-void tcp_initialise_socket(Socket *socket, uint16_t portno, uint8_t interrupts) {
-    initialise_socket(socket, TCP_MODE, portno, interrupts);
+void tcp_socket_initialise(Socket *socket, uint16_t portno, uint8_t interrupts) {
+    socket_initialise(socket, TCP_MODE, portno, interrupts);
 }
 
 /*  Puts the socket into TCP listen mode. 
@@ -47,7 +47,7 @@ uint8_t tcp_listen(Socket *socket) {
     } while (status != SOCK_LISTEN && status != SOCK_ESTABLISHED);
     
     // Enable interrupts for the socket
-    toggle_socket_interrupts(socket, 1);
+    socket_toggle_interrupts(socket, 1);
 
     return 0;
 }
@@ -86,7 +86,7 @@ uint8_t tcp_send(Socket *socket, uint16_t message_len, const char *message, uint
         return 0;
     }
 
-    send_send_command(socket);
+    socket_send_message(socket);
 
     return 0;
 }

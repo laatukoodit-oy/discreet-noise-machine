@@ -65,6 +65,21 @@
 
 #define MIN(a, b) ((a < b) ? a : b)
 
+/* Dark arts below, grandparental advisory required */
+#define EVAL(...) EVAL8(__VA_ARGS__)
+#define EVAL1(...) __VA_ARGS__
+#define EVAL2(...) EVAL1(EVAL1(__VA_ARGS__))
+#define EVAL4(...) EVAL2(EVAL2(__VA_ARGS__))
+#define EVAL8(...) EVAL4(EVAL4(__VA_ARGS__))
+#define EMPTY() 
+#define DEFER(x) x EMPTY()
+#define LOOP(list, i, element, args...) \
+    list[i] = element; __VA_OPT__(DEFER(_LOOP)()(list, (i + 1), args))
+#define _LOOP() LOOP
+#define ASSIGN(list, i, element, args...) \
+    EVAL(LOOP(list, i, element, args))
+
+uint8_t do_arrays_differ(uint8_t *array_1, uint8_t *array_2, uint8_t array_len);
 
 /*  Reads a 2-byte register value repeatedly until the value matches on two consecutive reads.
     As a 2-byte value has to be read in two pieces, there is a possibility of the value changing mid-read. 
@@ -75,7 +90,8 @@ void spi_init();
 
 /*  Reads data from a given address into to given buffer. 
     Returns 0 on full read, difference between buffer length and read length if buffer space is insufficient to hold the whole message. */
-uint8_t read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
+void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
+void read_reversed(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
 
 /* Writes an array to the W5500's registers. */
 void write(uint32_t addr, uint16_t data_len, const uint8_t *data);

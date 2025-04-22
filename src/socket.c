@@ -6,7 +6,7 @@
 
 
 /* Attaches port number, interrupt mask and mode of operation to socket */
-void initialise_socket(Socket *socket, uint8_t mode, uint16_t portno, uint8_t interrupt_mask) {
+void socket_initialise(Socket *socket, uint8_t mode, uint16_t portno, uint8_t interrupt_mask) {
     uint32_t port_addr = S_PORT | SOCKETMASK(socket->sockno);
     uint32_t mode_addr = S_MR | SOCKETMASK(socket->sockno);
     uint32_t tx_wr_addr = S_TX_WR | SOCKETMASK(socket->sockno);
@@ -16,13 +16,13 @@ void initialise_socket(Socket *socket, uint8_t mode, uint16_t portno, uint8_t in
     uint8_t port[] = {(portno >> 8), portno};
     write(port_addr, 2, port);
 
-    // Set socket mode (TCP or UDP)
+    // Set socket mode (TCP, UDP or MACRAW)
     socket->mode = mode;
     write(mode_addr, 1, &socket->mode);
 
     // Assign interrupt mask to socket, write to socket
     socket->interrupts = interrupt_mask;
-    toggle_socket_interrupts(socket, 0);
+    socket_toggle_interrupts(socket, 0);
 
     // Gets the socket's current TX buffer write pointer, takes note for future writes
     socket->tx_pointer = get_2_byte(tx_wr_addr);
@@ -37,6 +37,10 @@ void socket_open(Socket *socket) {
     uint8_t command = OPEN;
     write(com_addr, 1, &command);
 
+    if (socket->mode != TCP_MODE) {
+        socket_toggle_interrupts(socket, 1);
+    }
+
     // 
     socket->tx_pointer = get_2_byte(read_pointer_addr);
 }
@@ -48,7 +52,7 @@ void socket_close(const Socket *socket) {
     uint8_t close = CLOSE;
     write(com_addr, 1, &close);
 
-    toggle_socket_interrupts(socket, 0);
+    socket_toggle_interrupts(socket, 0);
 }
 
 /* Reads the socket's status register into the socket struct */
@@ -60,7 +64,7 @@ void socket_get_status(Socket *socket) {
 
 /*  Toggles a socket's interrupts on or off based on the socket's interrupt mask. 
     Will always include a CON_INT for TCP sockets for pointer tracking purposes, even if not requested by user. */
-void toggle_socket_interrupts(const Socket *socket, bool set_on) {
+void socket_toggle_interrupts(const Socket *socket, bool set_on) {
     uint32_t gen_interrupt_mask_addr = SIMR;
     uint32_t sock_interrupt_mask_addr = S_IMR | SOCKETMASK(socket->sockno);
 
@@ -82,9 +86,7 @@ void toggle_socket_interrupts(const Socket *socket, bool set_on) {
 }
 
 /* Updates the socket's TX write pointer register and commands the W5500 to transmit the contents of socket TX buffer. */
-void send_send_command(Socket *socket) {
-    uart_write_P(PSTR("Sending message out.\r\n"));
-    
+void socket_send_message(Socket *socket) {
     uint32_t tx_pointer_addr = S_TX_WR | SOCKETMASK(socket->sockno);
     uint32_t send_addr = S_CR | SOCKETMASK(socket->sockno);
 
@@ -93,6 +95,6 @@ void send_send_command(Socket *socket) {
     write(tx_pointer_addr, 2, new_tx_write_pointer);
 
     // Send the "send" command to pass the message to the other party
-    uint8_t send = SEND;
+    uint8_t send = (socket->mode == MACRAW_MODE ? SEND_MAC : SEND);
     write(send_addr, 1, &send);
 }

@@ -16,6 +16,14 @@ void end_transmission(void);
 /* Feeds a byte into the MOSI line bit by bit */
 void write_byte(uint8_t data);
 
+uint8_t do_arrays_differ(uint8_t *array_1, uint8_t *array_2, uint8_t array_len) {
+    uint8_t diff = 0;
+    for (uint8_t i = 0; i < array_len; i++) {
+        diff += array_1[i] ^ array_2[i];
+    }
+    return diff;
+}
+
 /*  Reads a 2-byte register value repeatedly until the value matches on two consecutive reads.
     As a 2-byte value has to be read in two pieces, there is a possibility of the value changing mid-read. 
     Returns the read value. */
@@ -44,7 +52,7 @@ void spi_init() {
 
 /*  Reads data from a given address into to given buffer. 
     Returns 0 on full read, difference between buffer length and read length if buffer space is insufficient to hold the whole message. */
-uint8_t read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
     // Send header
     start_transmission(addr);
 
@@ -52,7 +60,7 @@ uint8_t read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_le
     uint8_t len = MIN(read_len, buffer_len);
 
     uint8_t byte = 0;
-    for (uint8_t i = 0; i < len; i++) {
+    for (uint16_t i = 0; i < len; i++) {
         // Reads MISO line, fills byte bit by bit
         byte = 0;
         for (int j = 0; j < 8; j++) {
@@ -63,9 +71,28 @@ uint8_t read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_le
         buffer[i] = byte;
     }
     end_transmission();
+}
 
-    // Return leftover read length if buffer space was insufficient
-    return (read_len <= buffer_len ? 0 : read_len - buffer_len);
+void read_reversed(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+    // Send header
+    start_transmission(addr);
+
+    // Check read length against available buffer size, cap if necessary
+    uint8_t len = MIN(read_len, buffer_len);
+
+    uint8_t byte = 0;
+    LOW(CLK);
+    for (uint8_t i = 0; i < len; i++) {
+        // Reads MISO line, fills byte bit by bit
+        byte = 0;
+        for (int j = 0; j < 8; j++) {
+            byte |= (READINPUT << j);
+            HIGH(CLK);
+            LOW(CLK);
+        }
+        buffer[i] = byte;
+    }
+    end_transmission();
 }
 
 /* Writes an array to the W5500's registers. */

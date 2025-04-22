@@ -28,12 +28,16 @@
 // Socket modes for the Sn_MR register
 #define TCP_MODE 0x01
 #define UDP_MODE 0x02
+// 8 to set the "only receive broadcasts and addresses packets"
+#define MACRAW_MODE 0x84
 
 // Macros for things too small to be a function yet too weird to read
-#define SOCKETMASK(sockno) (sockno << 5)
-#define EMBEDSOCKET(base_addr, sockno) ((base_addr & 0xFFFFFF1F) | (sockno << 5))
-#define EMBEDADDRESS(base_addr, new_addr) ((base_addr & 0xFF0000FF) | ((uint32_t)new_addr << 8))
-#define MIN(a, b) ((a < b) ? a : b)
+#define SOCKETMASK(sockno) \
+    (sockno << 5)
+#define EMBEDSOCKET(base_addr, sockno) \
+    ((base_addr & 0xFFFFFF1F) | (sockno << 5))
+#define EMBEDADDRESS(base_addr, new_addr) \
+    ((base_addr & 0xFF0000FF) | (((uint32_t)new_addr) << 8))
 
 /* Holds data related to a single socket's operations */
 typedef struct { 
@@ -43,7 +47,7 @@ typedef struct {
     uint8_t status;
     // TCP or UDP
     uint8_t mode;
-    // The W5500 socket interrupt mask, set with initialise_socket
+    // The W5500 socket interrupt mask, set with socket_initialise
     uint8_t interrupts;
     // 
     uint16_t portno;
@@ -54,7 +58,7 @@ typedef struct {
 
 
 /* Attaches port number, interrupt mask and mode of operation to socket */
-void initialise_socket(Socket *socket, uint8_t mode, uint16_t portno, uint8_t interrupt_mask);
+void socket_initialise(Socket *socket, uint8_t mode, uint16_t portno, uint8_t interrupt_mask);
 /* Opens socket, updates struct's tx write pointer to match the current read pointer as that gets initialised with socket opens */
 void socket_open(Socket *socket);
 /* Self-explanatory. */
@@ -63,6 +67,6 @@ void socket_close(const Socket *socket);
 void socket_get_status(Socket *socket);
 /*  Toggles a socket's interrupts on or off based on the socket's interrupt mask. 
     Will always include a CON_INT for TCP sockets for pointer tracking purposes, even if not requested by user. */
-void toggle_socket_interrupts(const Socket *socket, bool set_on);
+void socket_toggle_interrupts(const Socket *socket, bool set_on);
 /* Updates the socket's TX write pointer register and commands the W5500 to transmit the contents of socket TX buffer. */
-void send_send_command(Socket *socket);
+void socket_send_message(Socket *socket);

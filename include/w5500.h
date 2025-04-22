@@ -36,7 +36,6 @@
 // Reset (apply config) bit
 #define OPMD 6
 
-
 // Number of sockets in use (so as to not use more memory to hold them than necessary).
 // W5500 has 8 in total.
 #define SOCKETNO (USER_SOCKETNO + DHCP_SOCKETNO)
@@ -44,8 +43,10 @@
     #error "Too many sockets requested"
 #endif
 
-// The last socket in the list is reserved for DHCP use
-#define DHCP_SOCKET (SOCKETNO - 1)
+// The first socket in the list is reserved for DHCP use. Must be 0 to enable MACRAW.
+#define DHCP_SOCKET 0
+// The number of sockets reserved for DHCP use
+#define DHCP_SOCKETNO 1
 
 // The number of interrupts that can be stored before new ones get dropped
 #define INTERRUPT_LIST_SIZE 5
@@ -53,12 +54,10 @@
 
 /* Device structure */
 typedef struct {
-    // Who we are
-    DHCP_Client *dhcp;
     // Nice bits of data about what sockets are in use
     Socket sockets[SOCKETNO];
     // A list of interrupts that have arrived from W5500
-    uint8_t interrupt_list[INTERRUPT_LIST_SIZE];
+    volatile uint8_t interrupt_list[INTERRUPT_LIST_SIZE];
     volatile uint8_t interrupt_list_index;
 } W5500;
 
@@ -66,6 +65,8 @@ typedef struct {
 // The module provides a single W5500 instance to the user
 extern W5500 Wizchip;
 
-
 // Device initialization
 void setup_wizchip(void);
+
+/* Setting of various registers needed for INT0 interrupts */ 
+void setup_atthing_interrupts(void);
