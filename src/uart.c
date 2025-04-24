@@ -9,7 +9,7 @@ void uart_init() {
 
 
 // Did not come up with this myself...
-static inline uint8_t reverse_byte(uint8_t x) {
+uint8_t reverse_byte(uint8_t x) {
     // Reverses bits next to each other.
     x = ((x >> 1) & 0x55) | ((x << 1) & 0xaa);
     // Reverses chunks of 2 bits next to each other.
@@ -89,17 +89,27 @@ void uart_write_P(const char* data) {
 
 
 #ifndef __AVR_ATtiny85__
-void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint16_t print_len) {
     
+}
+void print_buffer_P(const uint8_t *buffer, uint8_t buffer_len, uint16_t print_len) {
+
 }
 #endif
 #ifdef __AVR_ATtiny85__
-void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint8_t print_len) {
+void print_buffer(const uint8_t *buffer, uint8_t buffer_len, uint16_t print_len) {
     uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
     uint8_t byte;
     for (uint8_t i = 0; i < len; i++) {  
         byte = buffer[i];
         uart_putchar(byte);
+    }
+}
+
+void print_buffer_P(const uint8_t *buffer, uint8_t buffer_len, uint16_t print_len) {
+    uint8_t len = (print_len <= buffer_len ? print_len : buffer_len);
+    for (uint8_t i = 0; i < len; i++) {  
+        uart_putchar(pgm_read_byte(buffer + i));
     }
 }
 #endif
