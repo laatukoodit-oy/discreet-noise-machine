@@ -6,7 +6,7 @@ BUILD_DIR := build
 
 CC := avr-gcc
 OBJCOPY := avr-objcopy
-CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wextra -I$(INCLUDE_DIR) -std=c23 -MMD -fstack-usage
+CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wextra -Wno-pointer-sign -Wno-sign-compare -I$(INCLUDE_DIR) -std=c23 -MMD -fstack-usage
 LDFLAGS := -mmcu=$(MCU)
 
 SRCS := $(wildcard $(SRC_DIR)/*.c)

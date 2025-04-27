@@ -1,13 +1,64 @@
-
+#include <util/delay.h>
 #include <stdlib.h>
 #include "w5500.h"
+#include "buzzer.h"
+#include "index_html.h"
 
-const char content[] PROGMEM = "HTTP/1.1 OK 200\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body><h1>Test</h1></body></html>";
+void shuffle_interrupts();
+const unsigned char ok[] PROGMEM = "HTTP/1.1 200 OK\r\n\r\n";
+const unsigned char not_found[] PROGMEM = "HTTP/1.1 404 Not Found\r\n\r\n";
 
 void socket_init();
 void check_interrupts();
 void shuffle_interrupts();
 uint16_t counter = 0;
+
+uint8_t func_idx = 3;
+
+void a_route() {
+    set_sound_frequency(F_SOUND(1100));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void b_route() {
+    set_sound_frequency(F_SOUND(1300));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void c_route() {
+    set_sound_frequency(F_SOUND(1500));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void d_route() {
+    stop_sound();
+}
+
+
+void (*routes[])(void) = {
+    a_route,
+    b_route,
+    c_route,
+    d_route
+};
 
 int main(void) {
     // IP address & other setup
@@ -15,7 +66,11 @@ int main(void) {
 
     socket_init();
 
+    initialize_buzzer();
+
     for (;;) {
+        routes[func_idx]();
+
         // Initialises server socket once an IP has been acquired
         if (DHCP.dhcp_status == FRESH_ACQUIRED) {
             socket_init();
@@ -61,7 +116,35 @@ void check_interrupts() {
     print_buffer(buffer, 20, 20);
 
     if (interrupt & RECV_INT) {
-        tcp_send(sizeof(content), content, OP_PROGMEM);
+        uint8_t endpoint = buffer[5] & 7;
+
+        // Endpoint was a space -> send index_html
+        if (endpoint == 0) {
+            tcp_send(
+                sizeof(index_html),
+                index_html,
+                OP_PROGMEM
+            );
+        }
+        // Endpoint was 'a'-'e'
+        else if (endpoint < 5) {
+            tcp_send(
+                sizeof(ok),
+                ok,
+                OP_PROGMEM
+            );
+
+            func_idx = endpoint - 1;
+            sound_finished = false;
+        }
+        // Endpoint was not 'a'-'e'
+        else {
+            tcp_send(
+                sizeof(not_found),
+                not_found,
+                OP_PROGMEM
+            );
+        }
         tcp_disconnect();
     }
 
