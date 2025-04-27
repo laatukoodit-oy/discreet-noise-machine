@@ -3,8 +3,11 @@
 */
 
 #include "spi.h"
+#include "buzzer.h"
 
 uint8_t wizchip_address[3] = {0};
+static uint8_t previous_tccr0b = {};
+static uint8_t previous_tccr1 = {};
 
 #define LOW(pin) PORTB &= ~_BV(pin)
 #define HIGH(pin) PORTB |= _BV(pin)
@@ -146,6 +149,14 @@ void start_transmission() {
     // reads and writes that would mess with the chip select and message contents
     DISABLEINT0;
 
+    // Save PWM timer register states
+    previous_tccr0b = TCCR0B;
+    previous_tccr1 = TCCR1;
+
+    // Stop PWM pin modulation as the PWM pin functions
+    // as MOSI.
+    stop_sound();
+
     spi_init();
 
     // Chip select low to initiate transmission
@@ -165,6 +176,10 @@ void end_transmission() {
     // Chip select high to end transmission,
     // clock pin high because it doubles as the UART output, which is low active
     PORTB |= _BV(SEL) | _BV(CLK);
+
+    // Restore previous PWM timer register states
+    TCCR0B = previous_tccr0b;
+    TCCR1 = previous_tccr1;
 
     // Re-enable interrupts
     ENABLEINT0;
