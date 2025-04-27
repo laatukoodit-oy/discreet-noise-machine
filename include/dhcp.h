@@ -6,6 +6,7 @@
 
 #include "socket.h"
 #include <stdlib.h>
+#include "string.h"
 
 // Lengths of different sections
 #define ETH_H_LEN 14u
@@ -13,8 +14,8 @@
 #define IPv4_H_LEN 20u
 #define UDP_H_LEN 8u
 #define MACRAW_H_LEN (ETH_H_LEN + IPv4_H_LEN + UDP_H_LEN)
-#define DHCP_H_START_LEN 44u
-#define DHCP_H_ZEROES 192u
+#define DHCP_H_START_LEN 34u
+#define DHCP_H_ZEROES 202u
 #define DISCOVER_OPTIONS_LEN 16u
 #define REQUEST_OPTIONS_LEN 26u
 #define DHCP_MESSAGE_LEN (DHCP_H_START_LEN + DHCP_H_ZEROES + DISCOVER_OPTIONS_LEN)
@@ -72,9 +73,9 @@
 #define EXPIRED 0x31
 #define OFFER 0x02
 #define REQUEST 0x03
-#define REREQUEST 0x13
 #define DECLINE 0x04
 #define PACK 0x05
+#define PNAK 0x06
 // IP
 #define REQUESTED_IP 0x32, 0x04, IP_ADDRESS
 // The router and subnet mask of the current domain
@@ -88,15 +89,18 @@
 #define IPv4_LENGTH_STEP 2
 #define IPv4_CHECKSUM_STEP 10
 #define UDP_LENGTH_STEP 24
-/* Offsets for different DHCP packet sections
-    (not necessarily from header start, sometimes from last access in code)*/
-#define YIADDR_STEP 16
+/* Offsets for different DHCP packet sections from link layer header start*/
+#define UDP_SOURCE_STEP 26
+#define YIADDR_STEP 58
 #define YIADDR_TO_SIADDR_STEP 4
-#define SIADDR_STEP 20
+#define SIADDR_STEP 62
 #define SIADDR_TO_ZEROES_STEP 24
-#define CHADDR_STEP 28
+#define CHADDR_STEP 70
 #define CHADDR_TO_COOKIE_STEP 208
-#define MAGIC_COOKIE_STEP 236
+#define MAGIC_COOKIE_STEP 278
+#define REQUESTED_IP_STEP 287
+#define COOKIE_TO_MTYPE_STEP 6
+#define COOKIE_TO_SERVER_STEP 15
 #define COOKIE_TO_SUBNET_STEP 21
 #define COOKIE_TO_GATEWAY_STEP 27
 #define COOKIE_TO_LEASE_STEP 15
@@ -105,15 +109,13 @@
 #define MESSAGE_DELAY 200000ul
 
 
-/*  Holds data related to lease negotiations. 
+/*  Holds data related to lease negotiations.
     Most things are stored in the W5500 itself to save memory (such as our and the server's IP addresses) */
 typedef struct {
     // The phase of a DHCP negotiation we're in
     uint8_t dhcp_status;
-    // Timestamp for when we got our IP address
+    // The time since our last request
     uint32_t dhcp_lease_time;
-    // How long we can keep the requested IP address (or if one hasn't been acquired, how long since our last request)
-    uint32_t dhcp_lease_duration;
     uint8_t server[4];
     uint8_t our_ip[4];
     uint8_t submask[4];
@@ -121,16 +123,14 @@ typedef struct {
 
 /* A single instance of DHCP Client for our use. */
 extern DHCP_Client DHCP;
+extern Socket DHCP_Socket;
 
-
+void dhcp_setup();
 void set_network();
 /* A function to be put in the main loop that  */
-void dhcp_tracker(Socket *socket);
+void dhcp_tracker();
 /* Interrupt handler for incoming messages */
-void dhcp_interrupt(Socket *socket);
-
-/* Sets up the socket used for transmissions and starts the IP address lease process from the beginning. */
-void assemble_macraw_frame(Socket *socket);
+void dhcp_interrupt();
 
 /* Prints W5500's currently assigned IP */
 void print_ip();

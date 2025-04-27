@@ -1,8 +1,10 @@
-/* 
-    Module for bit-banged SPI communication between a W5500 and AVR ATtiny85 (or ATmega328P) 
+/*
+    Module for bit-banged SPI communication between a W5500 and AVR ATtiny85 (or ATmega328P)
 */
 
 #include "spi.h"
+
+uint8_t wizchip_address[3] = {0};
 
 #define LOW(pin) PORTB &= ~_BV(pin)
 #define HIGH(pin) PORTB |= _BV(pin)
@@ -10,29 +12,22 @@
 #define READINPUT ((PINB & _BV(MI)) >> MI)
 
 /* Sends header to start off transmission */
-void start_transmission(uint32_t addr);
+void start_transmission();
 /* Sets chip select, clock signal low to end transmission */
 void end_transmission(void);
 /* Feeds a byte into the MOSI line bit by bit */
 void write_byte(uint8_t data);
 
-uint8_t do_arrays_differ(uint8_t *array_1, uint8_t *array_2, uint8_t array_len) {
-    uint8_t diff = 0;
-    for (uint8_t i = 0; i < array_len; i++) {
-        diff += array_1[i] ^ array_2[i];
-    }
-    return diff;
-}
 
 /*  Reads a 2-byte register value repeatedly until the value matches on two consecutive reads.
-    As a 2-byte value has to be read in two pieces, there is a possibility of the value changing mid-read. 
+    As a 2-byte value has to be read in two pieces, there is a possibility of the value changing mid-read.
     Returns the read value. */
-uint16_t get_2_byte(uint32_t addr) {
-    uint8_t read1[] = {0, 0}, read2[] = {0, 0}; 
+uint16_t get_2_byte() {
+    uint8_t read1[] = {0, 0}, read2[] = {0, 0};
     do {
         read2[0] = read1[0];
         read2[1] = read1[1];
-        read(addr, read1, 2, 2);
+        read(read1, 2, 2);
     } while (read1[0] != read2[0] || read1[1] != read2[1]);
     return ((uint16_t)read2[0] << 8 | read2[1]);
 }
@@ -50,11 +45,13 @@ void spi_init() {
     LOW(MO);
 }
 
-/*  Reads data from a given address into to given buffer. 
+/*  Reads data from a given address into to given buffer.
     Returns 0 on full read, difference between buffer length and read length if buffer space is insufficient to hold the whole message. */
-void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+void read(uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+    // Set read bit in header frame
+    wizchip_address[2] &= ~_BV(2);
     // Send header
-    start_transmission(addr);
+    start_transmission();
 
     // Check read length against available buffer size, cap if necessary
     uint8_t len = MIN(read_len, buffer_len);
@@ -73,9 +70,11 @@ void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) 
     end_transmission();
 }
 
-void read_reversed(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+void read_reversed(uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) {
+    // Set read bit in header frame
+    wizchip_address[2] &= ~_BV(2);
     // Send header
-    start_transmission(addr);
+    start_transmission();
 
     // Check read length against available buffer size, cap if necessary
     uint8_t len = MIN(read_len, buffer_len);
@@ -96,11 +95,11 @@ void read_reversed(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t r
 }
 
 /* Writes an array to the W5500's registers. */
-void write(uint32_t addr, uint16_t data_len, const uint8_t *data) {
+void write(uint16_t data_len, const uint8_t *data) {
     // Set write bit in header frame
-    uint32_t address = addr | _BV(2);
+    wizchip_address[2] |= _BV(2);
     // Send header
-    start_transmission(address);
+    start_transmission();
 
     // Uses write_byte to push message through the pipeline byte by byte
     for (uint16_t i = 0; i < data_len; i++) {
@@ -111,11 +110,11 @@ void write(uint32_t addr, uint16_t data_len, const uint8_t *data) {
 }
 
 /* Writes an array stored in progmem to the W5500's registers. */
-void write_P(uint32_t addr, uint16_t data_len, const uint8_t *data) {    
+void write_P(uint16_t data_len, const uint8_t *data) {
     // Set write bit in header frame
-    uint32_t address = addr | _BV(2);
+    wizchip_address[2] |= _BV(2);
     // Send header
-    start_transmission(address);
+    start_transmission();
 
     // Uses write_byte to push message through the pipeline byte by byte
     for (uint16_t i = 0; i < data_len; i++) {
@@ -126,11 +125,11 @@ void write_P(uint32_t addr, uint16_t data_len, const uint8_t *data) {
 }
 
 /* Writes a single byte repeatedly to the W5500's registers. */
-void write_singular(uint32_t addr, uint16_t data_len, uint8_t data) {    
+void write_singular(uint16_t data_len, uint8_t data) {
     // Set write bit in header frame
-    uint32_t address = addr | _BV(2);
+    wizchip_address[2] |= _BV(2);
     // Send header
-    start_transmission(address);
+    start_transmission();
 
     // Uses write_byte to push message through the pipeline byte by byte
     for (uint16_t i = 0; i < data_len; i++) {
@@ -142,29 +141,28 @@ void write_singular(uint32_t addr, uint16_t data_len, uint8_t data) {
 
 
 /* Sends header to start off transmission */
-void start_transmission(uint32_t addr) {
+void start_transmission() {
     // Don't let a writing operation get interrupted by INT0, as that contains other
     // reads and writes that would mess with the chip select and message contents
     DISABLEINT0;
 
     spi_init();
-    
+
     // Chip select low to initiate transmission
     LOW(SEL);
-    
+
     // HEADER:
-    // The first byte of the 4-byte header is irrelevant
-    write_byte((uint8_t)(addr >> 16));
-    write_byte((uint8_t)(addr >> 8));
-    write_byte((uint8_t)addr);
+    write_byte(wizchip_address[0]);
+    write_byte(wizchip_address[1]);
+    write_byte(wizchip_address[2]);
 
     // Header sent, set output pin to low
     LOW(MO);
 }
 
-/* Sets chip select, clock signal low to end transmission */ 
+/* Sets chip select, clock signal low to end transmission */
 void end_transmission() {
-    // Chip select high to end transmission, 
+    // Chip select high to end transmission,
     // clock pin high because it doubles as the UART output, which is low active
     PORTB |= _BV(SEL) | _BV(CLK);
 
