@@ -8,52 +8,63 @@ void shuffle_interrupts();
 const unsigned char ok[] PROGMEM = "HTTP/1.1 200 OK\r\n\r\n";
 const unsigned char not_found[] PROGMEM = "HTTP/1.1 404 Not Found\r\n\r\n";
 
-uint8_t func_idx = 3;
+static uint8_t sound_sequence_idx = 0;
+static uint8_t sound_sequence_size = 0;
+static sound_s *sound_sequence = nullptr;
 
-void a_route() {
-    set_sound_frequency(F_SOUND(1100));
-    set_sound_duration(250);
-    play_sound();
-
-    if (sound_finished) {
-        func_idx = 3;
+sound_s wow[][4] = {
+    {
+        {F_SOUND(450), 250},
+        {F_SOUND(450), 250},
+        {F_SOUND(900), 250},
+        {F_SOUND(900), 250},
+    },
+    {
+        {F_SOUND(600), 250},
+        {F_SOUND(600), 250},
+        {F_SOUND(750), 250},
+        {F_SOUND(450), 250},
+    },
+    {
+        {F_SOUND(460), 250},
+        {F_SOUND(460), 150},
+        {F_SOUND(570), 250},
+        {F_SOUND(570), 150},
     }
-}
-
-
-void b_route() {
-    set_sound_frequency(F_SOUND(1300));
-    set_sound_duration(250);
-    play_sound();
-
-    if (sound_finished) {
-        func_idx = 3;
-    }
-}
-
-
-void c_route() {
-    set_sound_frequency(F_SOUND(1500));
-    set_sound_duration(250);
-    play_sound();
-
-    if (sound_finished) {
-        func_idx = 3;
-    }
-}
-
-
-void d_route() {
-    stop_sound();
-}
-
-
-void (*routes[])(void) = {
-    a_route,
-    b_route,
-    c_route,
-    d_route
 };
+
+
+void set_sound_sequence(uint8_t endpoint) {
+    if (endpoint == 3) {
+        sound_sequence = nullptr;
+        return;
+    }
+
+    sound_sequence_idx = 0;
+    sound_sequence = wow[endpoint];
+    sound_sequence_size = sizeof(wow[endpoint]) / sizeof(sound_s);
+}
+
+
+void play_sound_sequence() {
+    if (sound_sequence == nullptr) {
+        stop_sound();
+        return;
+    }
+
+    if (sound_finished) {
+        if (++sound_sequence_idx == sound_sequence_size) {
+            sound_sequence_idx = 0;
+        }
+
+        sound_finished = false;
+    }
+
+    set_sound_frequency(sound_sequence[sound_sequence_idx].frequency);
+    set_sound_duration(sound_sequence[sound_sequence_idx].duration_ms);
+
+    play_sound();
+}
 
 
 int main(void) {
@@ -73,7 +84,7 @@ int main(void) {
     initialize_buzzer();
 
     for (;;) {
-        routes[func_idx]();
+        play_sound_sequence();
 
         // Check the list for a new interrupt
         if (Wizchip.interrupt_list_index == 0) {
@@ -129,8 +140,7 @@ int main(void) {
                     1
                 );
 
-                func_idx = endpoint - 1;
-                sound_finished = false;
+                set_sound_sequence(endpoint - 1);
             }
             // Endpoint was not 'a'-'e'
             else {
