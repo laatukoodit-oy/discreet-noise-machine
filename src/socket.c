@@ -1,8 +1,8 @@
 #include "socket.h"
 
 
-/* 
-    Socket operations 
+/*
+    Socket operations
 */
 uint8_t initialise_socket(Socket *socket, uint8_t mode, uint16_t portno, uint8_t interrupt_mask) {
     // Embed the socket number in the addresses to hit the right register block
@@ -36,8 +36,7 @@ void socket_open(const Socket *socket) {
 }
 
 void socket_close(const Socket *socket) {
-    uart_write_P(PSTR("Socket close.\r\n"));
-    
+
     // Embed the socket number in the address to hit right register block
     uint32_t com_addr = S_CR | SOCKETMASK(socket->sockno);
 
@@ -58,7 +57,7 @@ void socket_get_status(Socket *socket) {
 
 void toggle_socket_interrupts(const Socket *socket, bool set_on) {
     //uart_write_P(PSTR("Toggle interrupts.\r\n"));
-    
+
     uint32_t gen_interrupt_mask_addr = SIMR;
     uint32_t sock_interrupt_mask_addr = S_IMR | SOCKETMASK(socket->sockno);
 

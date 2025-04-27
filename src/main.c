@@ -1,11 +1,60 @@
 #include <util/delay.h>
 #include <stdlib.h>
 #include "w5500.h"
-
-
-const char index_page[] PROGMEM = "HTTP/1.1 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body><h1>Test</h1></body></html>";
+#include "buzzer.h"
+#include "index_html.h"
 
 void shuffle_interrupts();
+const unsigned char ok[] PROGMEM = "HTTP/1.1 200 OK\r\n\r\n";
+const unsigned char not_found[] PROGMEM = "HTTP/1.1 404 Not Found\r\n\r\n";
+
+uint8_t func_idx = 3;
+
+void a_route() {
+    set_sound_frequency(F_SOUND(1100));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void b_route() {
+    set_sound_frequency(F_SOUND(1300));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void c_route() {
+    set_sound_frequency(F_SOUND(1500));
+    set_sound_duration(250);
+    play_sound();
+
+    if (sound_finished) {
+        func_idx = 3;
+    }
+}
+
+
+void d_route() {
+    stop_sound();
+}
+
+
+void (*routes[])(void) = {
+    a_route,
+    b_route,
+    c_route,
+    d_route
+};
+
 
 int main(void) {
     // IP address & other setup
@@ -20,14 +69,16 @@ int main(void) {
     do {
         err = tcp_listen(&Wizchip.sockets[0]);
     } while (err);
-    
-    for (;;) {    
+
+    initialize_buzzer();
+
+    for (;;) {
+        routes[func_idx]();
+
         // Check the list for a new interrupt
         if (Wizchip.interrupt_list_index == 0) {
             continue;
         }
-
-        uart_write_P(PSTR("Interrupt called.\r\n"));
 
         // Extract the socket number from the list
         uint8_t interrupt = Wizchip.interrupt_list[0];
@@ -42,23 +93,59 @@ int main(void) {
         uint8_t buffer[20] = {0};
 
         if (interrupt & (1 << DISCON_INT)) {
-            uart_write_P(PSTR("Discon_int.\r\n"));
             tcp_read_received(&Wizchip.sockets[sockno], buffer, 20);
-            print_buffer(buffer, 20, 20);
             uint8_t err;
             do {
                 err = tcp_listen(&Wizchip.sockets[sockno]);
             } while (err);
         }
-    
+
         if (interrupt & (1 << RECV_INT)) {
-            uart_write_P(PSTR("Recv_int.\r\n"));
-            tcp_read_received(&Wizchip.sockets[sockno], buffer, 20);
-            print_buffer(buffer, 20, 20);
-            tcp_send(&Wizchip.sockets[sockno], sizeof(index_page), index_page, 1, 1);
+            tcp_read_received(
+                &Wizchip.sockets[sockno],
+                buffer,
+                20
+            );
+
+            uint8_t endpoint = buffer[5] & 7;
+
+            // Endpoint was a space -> send index_html
+            if (endpoint == 0) {
+                tcp_send(
+                    &Wizchip.sockets[sockno],
+                    sizeof(index_html),
+                    index_html,
+                    1,
+                    1
+                );
+            }
+            // Endpoint was 'a'-'e'
+            else if (endpoint < 5) {
+                tcp_send(
+                    &Wizchip.sockets[sockno],
+                    sizeof(ok),
+                    ok,
+                    1,
+                    1
+                );
+
+                func_idx = endpoint - 1;
+                sound_finished = false;
+            }
+            // Endpoint was not 'a'-'e'
+            else {
+                tcp_send(
+                    &Wizchip.sockets[sockno],
+                    sizeof(not_found),
+                    not_found,
+                    1,
+                    1
+                );
+            }
+
             tcp_disconnect(&Wizchip.sockets[sockno]);
         }
-        
+
         shuffle_interrupts();
     }
 
@@ -71,6 +158,7 @@ void shuffle_interrupts() {
     for (int i = 0; i < Wizchip.interrupt_list_index; i++) {
         Wizchip.interrupt_list[i] = Wizchip.interrupt_list[i + 1];
     }
+
     Wizchip.interrupt_list_index--;
     Wizchip.interrupt_list[Wizchip.interrupt_list_index] = 0;
     sei();

@@ -8,7 +8,7 @@
 #define SOCK_INIT 0x13
 #define SOCK_LISTEN 0x14
 #define SOCK_ESTABLISHED 0x17
-#define SOCK_CLOSE_WAIT 0x1C 
+#define SOCK_CLOSE_WAIT 0x1C
 
 // TCP socket control commands
 #define LISTEN 0x02
@@ -18,7 +18,7 @@
 /* TCP */
 // Opens a port up for TCP Listen
 uint8_t tcp_listen(const Socket *socket);
-uint8_t tcp_send(const Socket *socket, uint8_t message_len, const char *message, bool progmem, bool sendnow);
+uint8_t tcp_send(const Socket *socket, uint16_t message_len, const char *message, bool progmem, bool sendnow);
 void tcp_read_received(const Socket *socket, uint8_t *buffer, uint8_t buffer_len);
 void tcp_disconnect(const Socket *socket);
 void tcp_close(const Socket *socket);

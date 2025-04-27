@@ -7,10 +7,10 @@
 /* SPI */
 // Device-specific pin assignments
 #if defined(__AVR_ATtiny85__)
-    // External interrupt    
+    // External interrupt
     #define INT_MODE MCUCR
     #define INT_ENABLE GIMSK
-    // SPI clock 
+    // SPI clock
     #define CLK PB1
     // SPI chip select
     #define SEL PB4
@@ -24,7 +24,7 @@
 #elif defined(__AVR_ATmega328P__)
     #define INT_MODE EICRA
     #define INT_ENABLE EIMSK
-    // SPI clock 
+    // SPI clock
     #define CLK PB0
     // SPI chip select
     #define SEL PB1
@@ -35,13 +35,13 @@
     // W5500 interrupt signal
     #define INTR PD2
     #define INTREG DDRD
-#else 
+#else
     #error "Not a supported microcontroller"
     // These are only here to stop the red squiggly lines
-    // External interrupt    
+    // External interrupt
     #define INT_MODE MCUCR
     #define INT_ENABLE GIMSK
-    // SPI clock 
+    // SPI clock
     #define CLK PB1
     // SPI chip select
     #define SEL PB4
@@ -68,8 +68,8 @@ void spi_init();
 void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len);
 // Write data to the W5500
 // The three writes: from array, from progmem, repeats a single character
-void write(uint32_t addr, uint8_t data_len, const uint8_t *data);
-void write_P(uint32_t addr, uint8_t data_len, const uint8_t *data);
+void write(uint32_t addr, uint16_t data_len, const uint8_t *data);
+void write_P(uint32_t addr, uint16_t data_len, const uint8_t *data);
 void write_singular(uint32_t addr, uint8_t data_len, uint8_t data);
 
 // Sends header to start off transmission

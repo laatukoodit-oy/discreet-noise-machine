@@ -13,7 +13,7 @@ void setup_atthing_interrupts(void);
 
 
 // Device initialization
-uint8_t setup_wizchip(void) {  
+uint8_t setup_wizchip(void) {
     //uart_write_P(PSTR("Setup.\r\n"));
 
     Wizchip.interrupt_list_index = 0;
@@ -70,7 +70,6 @@ uint8_t setup_wizchip(void) {
     // Enable sending of interrupt signals on the W5500 and reading them here
     setup_atthing_interrupts();
 
-    uart_write_P(PSTR("Setup done.\r\n"));
     return 0;
 }
 
@@ -87,7 +86,7 @@ void setup_atthing_interrupts(void) {
 
 ISR(INT0_vect) {
     //uart_write_P(PSTR("INT0.\r\n"));
-    
+
     uint32_t general_interrupt_addr = SIR;
     uint32_t socket_interrupt_addr = S_IR;
     uint8_t sockets = 0, interrupts = 0;
@@ -107,7 +106,7 @@ ISR(INT0_vect) {
 
         print_buffer(&interrupts, 1, 1);
 
-        // The interrupt mask is used to set which interrupts are active, 
+        // The interrupt mask is used to set which interrupts are active,
         // so the mask can be used to filter out any extras that shouldn't cause an alert
         interrupts &= Wizchip.sockets[i].interrupts;
 

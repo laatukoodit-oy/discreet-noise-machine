@@ -1,16 +1,20 @@
 #include "spi.h"
+#include "buzzer.h"
 
 #define LOW(pin) PORTB &= ~(1 << pin)
 #define HIGH(pin) PORTB |= (1 << pin)
 #define WRITEOUTPUT(out) PORTB = (PORTB & ~(1 << MO)) | (out << MO)
 #define READINPUT ((PINB & (1 << MI)) >> MI)
 
+static uint8_t previous_tccr0b = {};
+static uint8_t previous_tccr1 = {};
+
 /*
     SPI
 */
 // As 2-byte register values may change during reading, check them until subsequent reads match
 uint16_t get_2_byte(uint32_t addr) {
-    uint8_t read1[] = {0, 0}, read2[] = {0, 0}; 
+    uint8_t read1[] = {0, 0}, read2[] = {0, 0};
     do {
         read2[0] = read1[0];
         read2[1] = read1[1];
@@ -42,7 +46,7 @@ void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) 
     // Check read length against available buffer size, cap if necessary
     uint8_t len = (read_len <= buffer_len ? read_len : buffer_len);
     // (could use some sort of error if not all can be read)
-    
+
     for (uint8_t i = 0; i < len; i++) {
         // Reads MISO line, fills byte bit by bit
         byte = 0;
@@ -57,14 +61,14 @@ void read(uint32_t addr, uint8_t *buffer, uint8_t buffer_len, uint8_t read_len) 
 }
 
 // Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
-void write(uint32_t addr, uint8_t data_len, const uint8_t *data) {
+void write(uint32_t addr, uint16_t data_len, const uint8_t *data) {
     // Set write bit in header frame
     uint32_t address = addr | (1 << 2);
     // Send header
     start_transmission(address);
 
     // Uses write_byte to push message through the pipeline byte by byte
-    for (uint8_t i = 0; i < data_len; i++) {
+    for (uint16_t i = 0; i < data_len; i++) {
         write_byte(data[i]);
     }
 
@@ -72,21 +76,21 @@ void write(uint32_t addr, uint8_t data_len, const uint8_t *data) {
 }
 
 // Write to W5500's register(s), number of bytes written given by datalen (should be sizeof(data))
-void write_P(uint32_t addr, uint8_t data_len, const uint8_t *data) {    
+void write_P(uint32_t addr, uint16_t data_len, const uint8_t *data) {
     // Set write bit in header frame
     uint32_t address = addr | (1 << 2);
     // Send header
     start_transmission(address);
 
     // Uses write_byte to push message through the pipeline byte by byte
-    for (uint8_t i = 0; i < data_len; i++) {
+    for (uint16_t i = 0; i < data_len; i++) {
         write_byte(pgm_read_byte(data + i));
     }
 
     end_transmission();
 }
 
-void write_singular(uint32_t addr, uint8_t data_len, uint8_t data) {    
+void write_singular(uint32_t addr, uint8_t data_len, uint8_t data) {
     // Set write bit in header frame
     uint32_t address = addr | (1 << 2);
     // Send header
@@ -105,11 +109,19 @@ void start_transmission(uint32_t addr) {
     // reads and writes that would mess with the chip select and message contents
     DISABLEINT0;
 
+    // Save PWM timer register states
+    previous_tccr0b = TCCR0B;
+    previous_tccr1 = TCCR1;
+
+    // Stop PWM pin modulation as the PWM pin functions
+    // as MOSI.
+    stop_sound();
+
     spi_init();
-    
+
     // Chip select low to initiate transmission
     LOW(SEL);
-    
+
     // HEADER:
     // The first byte of the 4-byte header is irrelevant
     write_byte((uint8_t)(addr >> 16));
@@ -121,9 +133,13 @@ void start_transmission(uint32_t addr) {
 }
 
 void end_transmission() {
-    // Chip select high to end transmission, 
+    // Chip select high to end transmission,
     // clock pin high because it doubles as the UART output, which is low active
     PORTB |= (1 << SEL) | (1 << CLK);
+
+    // Restore previous PWM timer register states
+    TCCR0B = previous_tccr0b;
+    TCCR1 = previous_tccr1;
 
     // Re-enable interrupts
     ENABLEINT0;
