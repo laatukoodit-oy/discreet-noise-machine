@@ -55,7 +55,7 @@
 /* Device structure */
 typedef struct {
     // Nice bits of data about what sockets are in use
-    Socket sockets[SOCKETNO];
+    Socket *sockets[SOCKETNO];
     // A list of interrupts that have arrived from W5500
     volatile uint8_t interrupt_list[INTERRUPT_LIST_SIZE];
     volatile uint8_t interrupt_list_index;
