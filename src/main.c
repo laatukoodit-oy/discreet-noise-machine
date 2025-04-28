@@ -109,6 +109,7 @@ void check_interrupts() {
     uint8_t interrupt = Wizchip.interrupt_list[0];
     uint8_t sockno = interrupt >> 5;
 
+
     // DHCP operations, do not touch
     if (sockno == DHCP_SOCKET) {
         dhcp_interrupt();
