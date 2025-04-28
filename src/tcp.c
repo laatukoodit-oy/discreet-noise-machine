@@ -11,8 +11,8 @@ void tcp_socket_initialise(uint16_t portno, uint8_t interrupts) {
     socket_initialise(&TCP_Socket, TCP_MODE, portno, interrupts);
 }
 
-/*  Puts the socket into TCP listen mode. 
-    If the socket setup doesn't proceed as expected, returns the status code of the socket. */ 
+/*  Puts the socket into TCP listen mode.
+    If the socket setup doesn't proceed as expected, returns the status code of the socket. */
 uint8_t tcp_listen() {
     socket_open(&TCP_Socket);
 
@@ -44,7 +44,7 @@ uint8_t tcp_listen() {
         }
     // SOCK_ESTABLISHED included in case there's been an immediate connection
     } while (status != SOCK_LISTEN && status != SOCK_ESTABLISHED);
-    
+
     // Enable interrupts for the socket
     socket_toggle_interrupts(&TCP_Socket, ON);
 
@@ -52,8 +52,8 @@ uint8_t tcp_listen() {
 }
 
 /*  Writes a message to the socket's TX buffer and sends in the "send" command.
-    Operands: 
-    - OP_PROGMEM if you're sending in a pointer to an array in program memory rather than a normal array 
+    Operands:
+    - OP_PROGMEM if you're sending in a pointer to an array in program memory rather than a normal array
     - OP_HOLDBACK if you want to delay sending the message and write more into the buffer */
 uint8_t tcp_send(uint16_t message_len, const char *message, uint8_t operands) {
     // Check space left in the buffer (shouldn't run out but you never know)
@@ -63,11 +63,11 @@ uint8_t tcp_send(uint16_t message_len, const char *message, uint8_t operands) {
     if (send_amount < message_len) {
         return 1;
     }
-  
+
     // Start writing from the place you left off
     set_address((TCP_Socket.tx_pointer >> 8), TCP_Socket.tx_pointer, S_TX_BUF_BLOCK);
     embed_socket(1);
-    
+
     // Write message to buffer
     if (operands & OP_PROGMEM) {
         write_P(message_len, message);
@@ -89,7 +89,7 @@ uint8_t tcp_send(uint16_t message_len, const char *message, uint8_t operands) {
 }
 
 /*  Reads the socket's RX buffer into a given buffer
-    - As the only goal for our server is to get the path from a message, the message is 
+    - As the only goal for our server is to get the path from a message, the message is
     marked as entirely received even when only a small amount is in fact read */
 void tcp_read_received(uint8_t *buffer, uint8_t buffer_len) {
     // Check how much has come in and where you left off reading
@@ -103,17 +103,21 @@ void tcp_read_received(uint8_t *buffer, uint8_t buffer_len) {
 
     // Read incoming into the buffer
     set_address((rx_pointer >> 8), rx_pointer, S_RX_BUF_BLOCK);
+    embed_socket(1);
+
     read(buffer, buffer_len, read_amount);
+
+    rx_pointer += received_amount;
 
     // Update the read pointer
     socket_update_read_pointer(&TCP_Socket, rx_pointer);
 }
 
 /* Sends a disconnect command to the socket, which will start a connection close process. */
-void tcp_disconnect() {    
+void tcp_disconnect() {
     set_address(S_CR);
     embed_socket(1);
-    
+
     uint8_t discon = DISCON;
     write(1, &discon);
 }

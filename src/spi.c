@@ -3,8 +3,12 @@
 */
 
 #include "spi.h"
+#include "buzzer.h"
 
 uint8_t wizchip_address[3] = {0};
+static volatile uint8_t previous_tccr0b = {};
+static volatile uint8_t previous_tccr1 = {};
+static uint8_t sreg = 0;
 
 #define LOW(pin) PORTB &= ~_BV(pin)
 #define HIGH(pin) PORTB |= _BV(pin)
@@ -144,7 +148,16 @@ void write_singular(uint16_t data_len, uint8_t data) {
 void start_transmission() {
     // Don't let a writing operation get interrupted by INT0, as that contains other
     // reads and writes that would mess with the chip select and message contents
-    DISABLEINT0;
+    sreg = SREG;
+    SREG &= 0x7F;
+
+    // Save PWM timer register states
+    previous_tccr0b = TCCR0B;
+    previous_tccr1 = TCCR1;
+
+    // Stop PWM pin modulation as the PWM pin functions
+    // as MOSI.
+    stop_sound();
 
     spi_init();
 
@@ -166,8 +179,12 @@ void end_transmission() {
     // clock pin high because it doubles as the UART output, which is low active
     PORTB |= _BV(SEL) | _BV(CLK);
 
+    // Restore previous PWM timer register states
+    TCCR0B = previous_tccr0b;
+    TCCR1 = previous_tccr1;
+
     // Re-enable interrupts
-    ENABLEINT0;
+    SREG = sreg;
 }
 
 /* Feeds a byte into the MOSI line bit by bit */
