@@ -2,6 +2,8 @@
 
 A device with a web server on an 8-bit microcontroller and integrated speaker for auditory distraction purposes.
 
+![Project poster](The_Auditory_Nuisance_Machine.jpg)
+
 ## Usage
 
 The project `Makefile` expects a `make.conf` in the project root directory with the following variables:
